@@ -359,6 +359,15 @@
     body.touch #limit { left:calc(max(18px, env(safe-area-inset-left)) + 102px) !important; bottom:calc(max(16px, env(safe-area-inset-bottom)) + 96px) !important; }
     body.touch #driftTag { left:max(18px, env(safe-area-inset-left)); transform:none; bottom:calc(max(16px, env(safe-area-inset-bottom)) + 156px); }
   }
+  .phoneTabs { display:flex !important; overflow-x:auto; scrollbar-width:none; } .phoneTabs::-webkit-scrollbar { display:none; } .phoneTabs button { flex:1 0 50px; }
+  #objective { display:none; position:absolute; left:max(14px, env(safe-area-inset-left)); top:calc(max(12px, env(safe-area-inset-top)) + 84px); max-width:min(330px, calc(100% - 150px)); background:rgba(12,14,18,.62); border:1px solid rgba(255,210,58,.35); border-radius:10px; padding:4px 9px; font-size:12px; font-weight:800; line-height:1.3; pointer-events:auto; cursor:pointer; }
+  body.life #objective.on { display:block; }
+  body.navigating #objective { top:calc(max(12px, env(safe-area-inset-top)) + 150px); }
+  @media (max-width: 520px) { #objective { top:calc(max(12px, env(safe-area-inset-top)) + 60px); font-size:11px; } body.navigating #objective { top:calc(max(12px, env(safe-area-inset-top)) + 142px); }
+    #gig, #hustle, #chal { top:calc(max(12px, env(safe-area-inset-top)) + 96px) !important; } }
+  #btnPhone.msg::after { content:'💬'; position:absolute; top:-7px; right:-7px; font-size:13px; animation:blink 1.2s infinite; }
+  .chat { display:flex; flex-direction:column; gap:8px; margin-top:6px; } .bub { align-self:flex-start; max-width:88%; background:#2a3038; border-radius:14px 14px 14px 4px; padding:8px 11px; font-size:13.5px; line-height:1.35; }
+  .bub small { display:block; font-size:10.5px; font-weight:900; opacity:.6; margin-bottom:2px; }
 </style>
 </head>
 <body>
@@ -373,6 +382,7 @@
     <div class="nbTop"><div id="navArrow"></div><div><div id="navDist"></div><div id="navText"></div></div></div>
     <div class="nbBot"><span id="navEta"></span><button id="navMute" aria-label="Mute voice">🔊</button><button id="navEnd">End</button></div>
   </div>
+  <div id="objective"></div>
   <div id="statRow"><div id="money">$0</div><div id="lvPill">Lv 1</div><div id="wanted"></div></div>
   <div id="limit" style="display:none"><small>SPEED<br>LIMIT</small><b id="limitNum"></b></div>
   <canvas id="minimap" width="340" height="340"></canvas>
@@ -434,7 +444,7 @@
   <div class="phoneCase">
     <div class="phoneTop"><b>📱 Phone</b><button id="phoneClose">Close</button></div>
     <div id="phoneBody"></div>
-    <div class="phoneTabs"><button data-tab="bank"><i>🏦</i>Bank</button><button data-tab="jobs"><i>💼</i>Jobs</button><button data-tab="skills"><i>⭐</i>Skills</button><button data-tab="hustle"><i>🕶️</i>Hustle</button><button data-tab="homes"><i>🏢</i>Homes</button><button data-tab="cars"><i>🚗</i>Cars</button><button data-tab="garage"><i>🔑</i>Garage</button></div>
+    <div class="phoneTabs"><button data-tab="texts"><i>💬</i>Texts</button><button data-tab="bank"><i>🏦</i>Bank</button><button data-tab="jobs"><i>💼</i>Jobs</button><button data-tab="skills"><i>⭐</i>Skills</button><button data-tab="hustle"><i>🕶️</i>Hustle</button><button data-tab="homes"><i>🏢</i>Homes</button><button data-tab="cars"><i>🚗</i>Cars</button><button data-tab="garage"><i>🔑</i>Garage</button></div>
   </div>
 </div>
 <div id="firstLoad"><b>Building the streets…</b>The first visit to a part of the metro pulls real map data, which can take up to a minute. After that it loads instantly.</div>
@@ -483,6 +493,7 @@
       <span></span>
       <label><input type="checkbox" id="optBld"> Buildings</label>
       <label><input type="checkbox" id="optTrees"> Trees</label>
+      <label><input type="checkbox" id="optPeds"> People</label>
       <label><input type="checkbox" id="optShadows"> Shadows</label>
       <label>Traffic <select id="optTraffic"><option value="0">Off</option><option value="1">Light</option><option value="2">Normal</option><option value="3">Heavy</option></select></label>
       <label>Time <select id="optTime"><option value="cycle">Day/night cycle</option><option value="morning">Morning</option><option value="midday">Midday</option><option value="afternoon">Afternoon</option><option value="sunset">Sunset</option><option value="night">Night</option></select></label>
@@ -521,12 +532,12 @@
 
 <script>
 // GitHub Pages lets browsers keep this page for up to 10 minutes: check for a newer build and load it right away
-window.TCD_BUILD = 49;
+window.TCD_BUILD = 50;
 fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
   v = parseInt(v); if (v > window.TCD_BUILD && !new URLSearchParams(location.search).has('b' + v)) location.replace(location.pathname + '?b' + v + location.hash);
 }).catch(() => {});
 </script>
 <script>window.TCD_STATIC = true;</script>
-<script type="module" src="game.js?v=49"></script>
+<script type="module" src="game.js?v=50"></script>
 </body>
 </html>
