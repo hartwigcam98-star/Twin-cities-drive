@@ -242,6 +242,17 @@
   .pips { display:flex; gap:3px; margin:8px 0 4px; } .pips i { flex:1; height:6px; border-radius:3px; background:rgba(255,255,255,.12); } .pips i.on { background:#4fd27a; }
   .pSub.lock { color:#ffb36b; opacity:.9; }
   .pBtn.mini { padding:3px 8px; font-size:11px; margin:0 0 0 6px; flex:none; }
+  /* wanted level */
+  #wanted { display:none; position:absolute; left:50%; transform:translateX(-50%); top:calc(max(12px, env(safe-area-inset-top)) + 96px); text-align:center; pointer-events:none; text-shadow:0 2px 10px rgba(0,0,0,.7); }
+  #wanted.on { display:block; }
+  body.navigating #wanted { top:calc(max(12px, env(safe-area-inset-top)) + 206px); }
+  @media (max-width: 520px) { #wanted { top:calc(max(12px, env(safe-area-inset-top)) + 64px); left:calc(50% + 20px); } #wanted b { font-size:22px !important; letter-spacing:2px !important; } body.navigating #wanted { top:calc(max(12px, env(safe-area-inset-top)) + 236px); left:50%; } }
+  body:not(.onfoot) #doorHint { display:none; }
+  #wanted b { display:block; font-size:30px; font-weight:900; letter-spacing:4px; color:#ffd23a; animation:wflash .5s steps(2) infinite; }
+  #wanted b i { font-style:normal; color:rgba(255,255,255,.22); }
+  #wanted.evading b { animation:none; opacity:.55; }
+  #wanted span { display:inline-block; margin-top:2px; font-size:12px; font-weight:900; letter-spacing:.08em; background:rgba(12,14,18,.75); border-radius:99px; padding:3px 10px; }
+  @keyframes wflash { 0% { text-shadow:0 0 14px #ff2a2a; } 100% { text-shadow:0 0 14px #2a5bff; } }
 </style>
 </head>
 <body>
@@ -277,6 +288,7 @@
   <button id="actBtn"></button>
   <div id="money">$0</div>
   <div id="lvPill">Lv 1</div>
+  <div id="wanted"></div>
   <div id="gig"><div class="chTop"><i id="gigArrow"><svg viewBox="0 0 24 24"><path d="M12 3 5 20l7-4 7 4z"/></svg></i><div style="min-width:0"><div id="gigTitle"></div><div id="gigMain"></div><div id="gigSub"></div></div><button id="gigQuit">Go offline</button></div></div>
   <div id="driftTag"></div>
   <div id="fxTag"></div>
@@ -362,7 +374,7 @@
     </div>
     <button id="startBtn">Drive</button>
     <div class="keys">
-      <span class="kb"><kbd>W A S D</kbd> / arrows drive · <kbd>Space</kbd> while turning to drift (hold the turn, let go to straighten — long drifts give a turbo) · <kbd>Shift</kbd> nitro · <kbd>C</kbd> camera · <kbd>F</kbd> get in / out · <kbd>P</kbd> phone · <kbd>E</kbd> action · <kbd>T</kbd> +1 hour · <kbd>J</kbd> challenges · <kbd>M</kbd> map · <kbd>G</kbd> GPS · <kbd>R</kbd> back to road</span>
+      <span class="kb"><kbd>W A S D</kbd> / arrows drive · <kbd>Space</kbd> while turning to drift (hold the turn, let go to straighten — long drifts give a turbo) · <kbd>Shift</kbd> nitro · <kbd>C</kbd> camera · <kbd>F</kbd> get in / out (or steal a car) · <kbd>P</kbd> phone · <kbd>E</kbd> action · <kbd>T</kbd> +1 hour · <kbd>J</kbd> challenges · <kbd>M</kbd> map · <kbd>G</kbd> GPS · <kbd>R</kbd> back to road</span>
       <span class="tc">Left thumb steers, right thumb gas / brake. Tap DRIFT while turning to slide, hold the turn, then let go for a turbo. Drifting refills NITRO. The arrow button opens GPS; the map button lets you jump anywhere.</span>
     </div>
     <div class="credit">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · Routing by OSRM · Search by Nominatim</div>
@@ -388,6 +400,6 @@
 </div>
 
 <script>window.TCD_STATIC = true;</script>
-<script type="module" src="game.js?v=41"></script>
+<script type="module" src="game.js?v=42"></script>
 </body>
 </html>
