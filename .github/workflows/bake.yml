@@ -1,6 +1,9 @@
 name: Bake map tiles
 # Fills data/ with street, building, land-use and terrain tiles for the whole map, a batch at a time.
 on:
+  push:
+    branches: [main]
+    paths: ['tools/bake.mjs', '.github/workflows/bake.yml']
   workflow_dispatch:
     inputs:
       minutes: { description: 'Minutes to spend baking', default: '45' }
