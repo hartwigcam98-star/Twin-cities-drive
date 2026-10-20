@@ -302,6 +302,13 @@
   .card.back { background:repeating-linear-gradient(45deg, #7a2232, #7a2232 5px, #5a1626 5px, #5a1626 10px); }
   .bjMsg { min-height:22px; margin:10px 0 4px; font-weight:900; font-size:16px; color:var(--accent); }
   .shGrid button:disabled { opacity:.35; }
+  #btnWeap { display:none !important; font-size:13px; font-weight:900; width:auto !important; min-width:44px; padding:0 6px; } body.life #btnWeap.has { display:grid !important; }
+  #hpBox { display:none; position:absolute; left:50%; transform:translateX(-50%); bottom:calc(max(18px, env(safe-area-inset-bottom)) + 94px); width:150px; height:8px; border-radius:99px; background:rgba(0,0,0,.5); border:1px solid rgba(255,255,255,.25); overflow:hidden; }
+  body.life #hpBox.on { display:block; } #hpFill { display:block; height:100%; width:100%; background:linear-gradient(90deg, #d6332a, #ff6b57); }
+  body.touch #hpBox { bottom:calc(max(16px, env(safe-area-inset-bottom)) + 82px); width:120px; }
+  #btnFire { display:none; position:absolute; right:calc(max(14px, env(safe-area-inset-right)) + 70px); bottom:calc(max(18px, env(safe-area-inset-bottom)) + 168px); width:78px; height:78px; border-radius:50%; border:3px solid rgba(255,255,255,.5); background:rgba(214,51,42,.75); color:#fff; font-weight:900; font-size:15px; letter-spacing:.06em; pointer-events:auto; touch-action:none; }
+  #btnFire.down { background:#ff3b30; transform:scale(.94); } body.touch.armed #btnFire { display:block; }
+  #hurt { position:fixed; inset:0; pointer-events:none; opacity:0; background:radial-gradient(ellipse at center, transparent 45%, rgba(200,0,0,.75) 100%); z-index:5; }
 </style>
 </head>
 <body>
@@ -319,6 +326,7 @@
   <div id="limit" style="display:none"><small>SPEED<br>LIMIT</small><b id="limitNum"></b></div>
   <canvas id="minimap" width="340" height="340"></canvas>
   <div class="tools">
+    <button id="btnWeap" aria-label="Weapon">✊</button>
     <button id="btnPhone" aria-label="Phone"><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg></button>
     <button id="btnNav" aria-label="Navigate"><svg viewBox="0 0 24 24"><path d="M3 11 21 3l-8 18-2-8z"/></svg></button>
     <button id="btnChal" aria-label="Challenges"><svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v4M8 21h8M9 18h6"/></svg></button>
@@ -337,6 +345,8 @@
   <button id="actBtn"></button>
   <div id="money">$0</div>
   <div id="lvPill">Lv 1</div>
+  <div id="hpBox"><i id="hpFill"></i></div>
+  <button id="btnFire" aria-label="Fire">FIRE</button>
   <div id="wanted"></div>
   <div id="hustle"><div class="chTop"><i id="huArrow"><svg viewBox="0 0 24 24"><path d="M12 3 5 20l7-4 7 4z"/></svg></i><div style="min-width:0;flex:1"><div id="huTitle"></div><div id="huMain"></div><div id="huSub"></div></div><button id="huQuit">Bail</button></div></div>
   <div id="gig"><div class="chTop"><i id="gigArrow"><svg viewBox="0 0 24 24"><path d="M12 3 5 20l7-4 7 4z"/></svg></i><div style="min-width:0"><div id="gigTitle"></div><div id="gigMain"></div><div id="gigSub"></div></div><button id="gigQuit">Go offline</button></div></div>
@@ -360,6 +370,7 @@
 </div>
 
 <div id="toast"></div>
+<div id="hurt"></div>
 <div id="shift">
   <div class="phoneCase shiftCase">
     <div class="shTop"><b id="shTitle"></b><span id="shTime"></span></div>
@@ -432,7 +443,7 @@
     </div>
     <button id="startBtn">Drive</button>
     <div class="keys">
-      <span class="kb"><kbd>W A S D</kbd> / arrows drive · <kbd>Space</kbd> while turning to drift (hold the turn, let go to straighten — long drifts give a turbo) · <kbd>Shift</kbd> nitro · <kbd>C</kbd> camera · <kbd>F</kbd> get in / out (or steal a car) · <kbd>P</kbd> phone · <kbd>E</kbd> action · <kbd>T</kbd> +1 hour · <kbd>J</kbd> challenges · <kbd>M</kbd> map · <kbd>G</kbd> GPS · <kbd>R</kbd> back to road</span>
+      <span class="kb"><kbd>W A S D</kbd> / arrows drive · <kbd>Space</kbd> while turning to drift (hold the turn, let go to straighten — long drifts give a turbo) · <kbd>Shift</kbd> nitro · <kbd>C</kbd> camera · <kbd>F</kbd> get in / out (or steal a car) · <kbd>Q</kbd> weapon · <kbd>K</kbd>/click fire · <kbd>P</kbd> phone · <kbd>E</kbd> action · <kbd>T</kbd> +1 hour · <kbd>J</kbd> challenges · <kbd>M</kbd> map · <kbd>G</kbd> GPS · <kbd>R</kbd> back to road</span>
       <span class="tc">Left thumb steers, right thumb gas / brake. Tap DRIFT while turning to slide, hold the turn, then let go for a turbo. Drifting refills NITRO. The arrow button opens GPS; the map button lets you jump anywhere.</span>
     </div>
     <div class="credit">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · Routing by OSRM · Search by Nominatim</div>
@@ -458,6 +469,6 @@
 </div>
 
 <script>window.TCD_STATIC = true;</script>
-<script type="module" src="game.js?v=46"></script>
+<script type="module" src="game.js?v=47"></script>
 </body>
 </html>

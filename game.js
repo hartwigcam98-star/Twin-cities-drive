@@ -3694,6 +3694,7 @@ const sfx = (() => {
     pause(on) { if (!ac) return; on ? ac.suspend() : ac.resume(); },
     setOn(on) { if (on) { init(); if (ac) ac.resume(); } else if (ac) ac.suspend(); },
     whoosh() { noiseBurst(0.7, 500, 3500, 0.5); },
+    shot(k = 1) { noiseBurst(0.16, 3200, 200, 0.9 * k); noiseBurst(0.35, 600, 80, 0.5 * k); },
     siren(v) { // police siren: a wailing tone, louder as the nearest chasing cruiser closes in
       if (!ac) return;
       if (!this._sir) { const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.value = 900; const lfo = ac.createOscillator(); lfo.frequency.value = 0.35; const lg = ac.createGain(); lg.gain.value = 380; lfo.connect(lg); lg.connect(o.frequency); const g = ac.createGain(); g.gain.value = 0; o.connect(g); g.connect(mg); o.start(); lfo.start(); this._sir = g; }
@@ -5060,6 +5061,18 @@ const phone = (() => {
       h += `<div class="pBig lv" style="color:#b36bff">Street rep ${lv}</div><div class="xpBar"><i style="width:${lv >= 10 ? 100 : ((L.rep % 100)).toFixed(0)}%;background:#b36bff"></i></div><div class="pSub">${L.rep} rep${lv < 10 ? ` · ${nx - L.rep} to level ${lv + 1}` : ''} · every level makes hustles pay 6% more. Cops don’t like any of this.</div>`;
       const nav = (s, label) => `<button class="pBtn ghost sm" data-act="navspot" data-x="${s.x.toFixed(0)}" data-z="${s.z.toFixed(0)}" data-n="${esc(s.n)}">${label || 'Navigate'} · ${fmtDist(Math.hypot(s.x - S.x, s.z - S.z))}</button>`;
       h += `<div class="pCard"><b>📦 Package runs</b><span class="pR">${money(Math.round(450 * hustle.repMult()))}+</span><div class="pSub">Dre texts you a pickup behind a local business and a drop across town. Beat the clock; patrol cars may get curious.</div>${hustle.active() ? '<div class="pSub">You’re busy with a hustle right now.</div>' : '<button class="pBtn sm" data-act="pkg">Text Dre for work</button>'}</div>`;
+      { // guns and contracts
+        const G2 = Object.entries(GUNS);
+        h += `<div class="pCard"><b>🔫 Dre’s black market</b><div class="pSub">Delivered to wherever you are. Switch weapons with the weapon button (Q on a keyboard); on foot you auto-aim at the nearest threat in front of you and hold FIRE (K or click). Getting busted means losing your guns.</div>`;
+        for (const [k, g] of G2) { const have = L.guns && L.guns[k] != null; h += `<div class="pRow">${g.ic} ${g.n}${have ? ` <small>${L.guns[k]} rounds</small>` : ''}<span>${have ? `<button class="pBtn sm mini" data-act="ammo" data-k="${k}">+${g.pack} · ${money(g.packPrice)}</button>` : `<button class="pBtn sm mini" data-act="gun" data-k="${k}">Buy · ${money(g.price)}</button>`}</span></div>`; }
+        h += '</div>';
+        const c = combat.offer();
+        if (c) {
+          h += `<div class="pCard${c.accepted ? ' ok' : ''}"><b>☎️ The Broker</b><span class="pR">${money(c.pay)}</span><div class="pSub">Contract: <b>${esc(c.name)}</b> — ${esc(c.why)}. Last seen around ${esc(c.place)}. ${c.guards ? `Has ${c.guards} bodyguard${c.guards > 1 ? 's' : ''}, armed.` : 'Alone.'} Expect 3 stars when it’s done.</div>`;
+          h += c.accepted ? `<div class="pUnits"><button class="pBtn sm" data-act="navspot" data-x="${c.x.toFixed(0)}" data-z="${c.z.toFixed(0)}" data-n="${esc(c.place)}">Navigate · ${fmtDist(Math.hypot(c.x - S.x, c.z - S.z))}</button><button class="pBtn sm ghost" data-act="cfail">Walk away</button></div>` : `<button class="pBtn sm" data-act="contract">Take the contract</button>`;
+          h += '</div>';
+        }
+      }
       const ch = hustle.nearest('chop');
       h += `<div class="pCard"><b>🔧 Chop shops</b><div class="pSub">Steal a car (walk up to a stopped one and press F), then drive it to a chop shop for cash — ${money(Math.round(350 * hustle.repMult()))} for a beater up to ${money(Math.round(3200 * hustle.repMult()))} for a sports car. They’ll give you a ride back to your own car.</div><div class="pSub">Nearest: ${esc(ch.n.replace(/ \(.*/, ''))}</div><div class="pUnits">${nav(ch)}</div></div>`;
       const rc = hustle.nearest('race'), open = hustle.night(20, 4);
@@ -5150,6 +5163,10 @@ const phone = (() => {
     else if (a === 'navwork') { close(); startNav(L.job.x, L.job.z, L.job.where); }
     else if (a === 'spend') { jobs.spend(b.dataset.k); render(); }
     else if (a === 'pkg') { close(); hustle.startRun(); }
+    else if (a === 'gun') { combat.buy(b.dataset.k); render(); }
+    else if (a === 'ammo') { combat.buy(b.dataset.k, true); render(); }
+    else if (a === 'contract') { close(); combat.accept(); }
+    else if (a === 'cfail') { combat.contractFail('You walked away from the contract'); render(); }
     else if (a === 'bet') { hustle.placeBet(b.dataset.id, b.dataset.s, +b.dataset.st); render(); }
     else if (a === 'navspot') { close(); startNav(+b.dataset.x, +b.dataset.z, b.dataset.n); }
   };
@@ -5817,6 +5834,7 @@ const police = (() => {
     toast(`Busted! ${money(fine)} fine${impound ? ` + ${money(impound)} impound` : ''}${hot ? ', the stolen car went back to its owner' : ''} · ${hrs} hours in booking — it's ${clockText()}`);
     L.busts = (L.busts || 0) + 1; life.touch(); life.save();
     if (window.__hustle && __hustle.active()) __hustle.stop();
+    if (window.__combat) __combat.confiscate();
   }
   // ── per frame ──
   function update(dt, info) {
@@ -5853,6 +5871,7 @@ const police = (() => {
       if (nearest < (S.mode === 'foot' ? 6 : 8) && spd < (S.mode === 'foot' ? 3.5 : 2.5)) { if ((W.bust += dt) > 2.2) busted(); }
       else W.bust = Math.max(0, W.bust - dt);
       sfx.siren(Math.max(0, 1 - nearest / 260));
+      if (W.stars >= 3 && nearest < 32 && Math.random() < dt * (S.mode === 'foot' ? 1.3 : 0.7) && window.__combat) __combat.hurt(S.mode === 'foot' ? 9 : 5, 'shot by police');
     } else sfx.siren(W.pull ? 0.6 : 0);
     // HUD
     const on = !!(W.stars || W.pull); el.classList.toggle('on', on);
@@ -6339,9 +6358,298 @@ const hustle = (() => {
     return null;
   }
   $('huQuit').onclick = () => { if (run && run.type === 'race') stop(`You bailed — ${money(run.bet)} gone`); else if (run) { addRep(-5); stop('You dumped the package.'); } };
-  return { lines, placeBet, settleBets, update, action, startRun, chop, startRace, flip, cards, todaysEvents, nearest, repLvl, repMult, overlayOn: () => !!ov, active: () => !!run, stop, spots: HUSTLE_SPOTS, VENUES, night };
+  return { addRep, lines, placeBet, settleBets, update, action, startRun, chop, startRace, flip, cards, todaysEvents, nearest, repLvl, repMult, overlayOn: () => !!ov, active: () => !!run, stop, spots: HUSTLE_SPOTS, VENUES, night };
 })();
 window.__hustle = hustle;
+// ───────────────────────── weapons, health and contracts ─────────────────────────
+// Guns come from Dre's black market. On foot you auto-aim at the nearest threat in front of you. Contracts from "the
+// Broker" are made-up characters (with bodyguards at higher street rep) at real places; pulling one off brings 3 stars.
+// Health regenerates; at zero you wake up at HCMC with an ER bill. Busted = your guns are confiscated.
+const GUNS = {
+  pistol: { n: 'Pistol', ic: '🔫', dmg: 34, rate: 0.38, range: 45, price: 800, ammo0: 60, pack: 30, packPrice: 60 },
+  smg: { n: 'SMG', ic: '💥', dmg: 15, rate: 0.095, range: 38, price: 3500, ammo0: 150, pack: 90, packPrice: 150 },
+};
+const HOSPITAL = (() => { const [x, z] = proj(44.9727, -93.2617); return { x, z }; })();
+const combat = (() => {
+  const L = LIFE;
+  if (!L.guns) L.guns = {}; if (!L.weapon || (L.weapon !== 'none' && !L.guns[L.weapon])) L.weapon = 'none';
+  const P = { hp: 100, hurtT: 9, cool: 0, fire: false, aimT: 0, lock: null };
+  const npcs = [];
+  const T = THREE, own = m => { m.userData.terr = true; return m; };
+  const gy = (x, z, y = 0) => y + terrainAt(x, z);
+  // ── effects: tracers, muzzle flashes, the lock-on ring, hand-held guns ──
+  const trGeo = new T.BufferGeometry(); trGeo.setAttribute('position', new T.BufferAttribute(new Float32Array(6 * 24), 3));
+  const trMat = own(new T.LineBasicMaterial({ color: '#ffe08a', transparent: true, opacity: 0.9 }));
+  const tracers = new T.LineSegments(trGeo, trMat); tracers.frustumCulled = false; scene.add(tracers);
+  const trList = []; // [x0,y0,z0,x1,y1,z1,life]
+  const flashMat = own(new T.MeshBasicMaterial({ color: '#ffd36b', transparent: true, opacity: 0.95, depthWrite: false }));
+  const flashGeo = new T.SphereGeometry(0.12, 8, 6), flashes = [];
+  const ringMat = own(new T.MeshBasicMaterial({ color: '#ff3b30', transparent: true, opacity: 0.75, side: T.DoubleSide, depthWrite: false }));
+  const ring = new T.Mesh(new T.RingGeometry(0.55, 0.75, 28), ringMat); ring.rotation.x = -Math.PI / 2; ring.visible = false; scene.add(ring);
+  const tgtMat = own(new T.MeshBasicMaterial({ color: '#ff3b30', transparent: true, opacity: 0.22, depthWrite: false, side: T.DoubleSide }));
+  const beam = new T.Mesh(new T.CylinderGeometry(1.2, 1.2, 90, 12, 1, true), tgtMat); beam.visible = false; scene.add(beam);
+  const gunMat = own(new T.MeshLambertMaterial({ color: '#1b1d21' }));
+  function makeGun(smg) { const g = new T.Group(); const b = new T.Mesh(new T.BoxGeometry(0.05, 0.08, smg ? 0.42 : 0.24), gunMat); b.position.z = smg ? 0.12 : 0.06; g.add(b); const h = new T.Mesh(new T.BoxGeometry(0.045, 0.13, 0.06), gunMat); h.position.set(0, -0.08, -0.02); g.add(h); g.visible = false; scene.add(g); return g; }
+  const myGun = { pistol: makeGun(false), smg: makeGun(true) };
+  function tracer(a, b) { trList.push([a.x, a.y, a.z, b.x, b.y, b.z, 0.07]); const f = own(new T.Mesh(flashGeo, flashMat)); f.position.copy(a); f.userData.life = 0.05; scene.add(f); flashes.push(f); }
+  function fxTick(dt) {
+    const arr = trGeo.attributes.position.array; let n = 0;
+    for (let i = trList.length - 1; i >= 0; i--) { const t = trList[i]; t[6] -= dt; if (t[6] <= 0) { trList.splice(i, 1); continue; } }
+    for (const t of trList.slice(-24)) { arr.set(t.slice(0, 6), n * 6); n++; }
+    trGeo.setDrawRange(0, n * 2); trGeo.attributes.position.needsUpdate = true;
+    for (let i = flashes.length - 1; i >= 0; i--) { const f = flashes[i]; f.userData.life -= dt; if (f.userData.life <= 0) { scene.remove(f); flashes.splice(i, 1); } }
+  }
+  // ── point a figure's right arm (and gun) along a direction, whatever its bind pose ──
+  const _q = new T.Quaternion(), _q2 = new T.Quaternion(), _v = new T.Vector3(), _v2 = new T.Vector3(), _m = new T.Matrix4();
+  function bindInfo(F) {
+    if (F.aim) return F.aim;
+    const idx = n => F.bones.findIndex(b => b.name === n), ia = idx('RightArm'), ifa = idx('RightForeArm'), ih = idx('RightHand');
+    if (ia < 0 || ifa < 0 || ih < 0) return (F.aim = { ok: false });
+    const inv = F.mesh.skeleton.boneInverses, bq = k => { const p = new T.Vector3(), q = new T.Quaternion(), s = new T.Vector3(); _m.copy(inv[k]).invert().decompose(p, q, s); return { p, q }; };
+    const A = bq(ia), FA = bq(ifa), H = bq(ih);
+    return (F.aim = { ok: true, ia, ifa, ih, qA: A.q, qF: FA.q, qH: H.q, d0: FA.p.clone().sub(A.p).normalize() });
+  }
+  function aimArm(F, dir) {
+    const I = bindInfo(F); if (!I.ok) return null;
+    F.root.updateMatrixWorld(true);
+    // the bind direction of the upper arm, as it sits in the world right now (the root's heading turns it)
+    F.root.getWorldQuaternion(_q2); // includes the heading; bind space is the root's unrotated frame
+    const d0w = _v.copy(I.d0).applyQuaternion(_q2), R = new T.Quaternion().setFromUnitVectors(d0w, dir);
+    for (const [k, qb] of [[I.ia, I.qA], [I.ifa, I.qF], [I.ih, I.qH]]) {
+      const b = F.bones[k];
+      const want = R.clone().multiply(_q2).multiply(qb); // world orientation: bind (in the root's frame), swung onto the aim line
+      b.parent.getWorldQuaternion(_q); b.quaternion.copy(_q.invert().multiply(want)); b.updateMatrixWorld(true);
+    }
+    return F.bones[I.ih].getWorldPosition(new T.Vector3());
+  }
+  function holdGun(g, hand, dir) { if (!hand) { g.visible = false; return; } g.visible = true; g.position.copy(hand).addScaledVector(dir, 0.08); g.quaternion.setFromUnitVectors(_v2.set(0, 0, 1), dir); }
+  // ── people: contract targets and their bodyguards ──
+  async function spawnNPC(id, x, z, role) {
+    await loadCharFile('boss'); if (!BOSS.clips.walk) { const A = await loadCharFile('anims').catch(() => null); if (A) Object.assign(BOSS.clips, A); }
+    const D = await loadCharFile(id), F = buildFigure(D, id); F.grp.visible = true;
+    const n = { F, id, x, z, h: Math.random() * 6.28, v: 0, hp: role === 'guard' ? 70 : 60, role, state: 'idle', t: Math.random() * 5, gait: 0, phase: 0, cool: 1 + Math.random(), hx: x, hz: z, wT: 0, dead: false, deadT: 0, gun: role === 'guard' ? makeGun(false) : null };
+    npcs.push(n); return n;
+  }
+  function removeNPCs() { for (const n of npcs) { scene.remove(n.F.grp); n.F.mesh.geometry.dispose(); n.F.mat.map.dispose(); n.F.mat.dispose(); if (n.gun) scene.remove(n.gun); } npcs.length = 0; beam.visible = false; ring.visible = false; }
+  function animNPC(n, dt) {
+    const F = n.F, C = F.clips, walk = C.walk || C.strut, run = C.run || C.fastrun;
+    if (n.dead) { // fall over and stay down
+      n.deadT = Math.min(1, n.deadT + dt * 2.2);
+      posePlay(F, C.idle, 0, F.qa, F.ha);
+      const B = F.bones; for (let k = 0; k < F.nb; k++) B[k].quaternion.set(F.qa[k * 4], F.qa[k * 4 + 1], F.qa[k * 4 + 2], F.qa[k * 4 + 3]); B[0].position.set(F.ha[0], F.ha[1], F.ha[2]);
+      const e = 1 - Math.pow(1 - n.deadT, 3);
+      F.root.position.set(n.x, gy(n.x, n.z) + 0.15 * e, n.z); F.root.rotation.set(-Math.PI / 2 * e, n.h, 0, 'YXZ');
+      if (n.gun) n.gun.visible = false;
+      return;
+    }
+    const sp = Math.abs(n.v), target = sp < 0.15 ? 0 : sp < 2.6 ? 1 : 2;
+    n.gait += (target - n.gait) * Math.min(1, dt * 7); n.t += dt;
+    const ref = n.gait > 1.5 ? run : walk; n.phase += dt * (sp > 0.15 ? sp / Math.max(0.5, ref.speed || 1) : 1);
+    const cyc = c => n.phase * ((c.n - 1) / c.fps);
+    posePlay(F, C.idle, n.t, F.qa, F.ha);
+    if (n.gait > 0.01) { posePlay(F, walk, cyc(walk), F.qb, F.hb); poseBlend(F, F.qa, F.ha, F.qb, F.hb, Math.min(1, n.gait)); }
+    if (n.gait > 1.01) { posePlay(F, run, cyc(run), F.qb, F.hb); poseBlend(F, F.qa, F.ha, F.qb, F.hb, Math.min(1, n.gait - 1)); }
+    const B = F.bones; for (let k = 0; k < F.nb; k++) B[k].quaternion.set(F.qa[k * 4], F.qa[k * 4 + 1], F.qa[k * 4 + 2], F.qa[k * 4 + 3]); B[0].position.set(F.ha[0], F.ha[1], F.ha[2]);
+    F.root.position.set(n.x, gy(n.x, n.z), n.z); F.root.rotation.set(0, n.h, 0);
+    if (n.aiming) { const d = new T.Vector3(S.x - n.x, (S.y + 1.3 + terrainAt(S.x, S.z)) - (gy(n.x, n.z) + 1.4), S.z - n.z).normalize(); holdGun(n.gun, aimArm(F, d), d); }
+    else if (n.gun) n.gun.visible = false;
+  }
+  function moveNPC(n, dt, tx, tz, speed) {
+    const dx = tx - n.x, dz = tz - n.z, d = Math.hypot(dx, dz);
+    if (d < 0.3) { n.v += (0 - n.v) * Math.min(1, dt * 6); return d; }
+    n.h += angDiff(Math.atan2(dx, dz), n.h) * Math.min(1, dt * 6);
+    n.v += (speed - n.v) * Math.min(1, dt * 4);
+    const p = { x: n.x + Math.sin(n.h) * n.v * dt, z: n.z + Math.cos(n.h) * n.v * dt, y: 0 };
+    if (collideBuildings(p, 0.35)) n.wT += dt;
+    n.x = p.x; n.z = p.z; return d;
+  }
+  // ── the player's health ──
+  function hurt(dmg, why) {
+    if (P.hp <= 0 || !LIFE_ON()) return;
+    P.hp -= dmg; P.hurtT = 0; addTrauma(0.25); buzz(30);
+    const v = $('hurt'); v.style.opacity = Math.min(0.85, 0.35 + dmg / 30).toFixed(2);
+    if (P.hp <= 0) wasted(why);
+  }
+  function wasted(why) {
+    P.hp = 0; flashTag('WASTED'); toast(`You went down${why ? ' — ' + why : ''}. You wake up at HCMC.`);
+    setTimeout(() => {
+      police.clearWanted(); hustle.stop(); contractFail(null, true);
+      if (L.hot) police.dropHot();
+      life.pay(1200, 'HCMC emergency room bill');
+      teleport(HOSPITAL.x, HOSPITAL.z, 'Hennepin Healthcare — you’re patched up. ER bill: $1,200');
+      P.hp = 100; $('hurt').style.opacity = 0;
+    }, 1600);
+  }
+  // ── shooting ──
+  const visible = (ax, az, bx, bz) => { const d = Math.hypot(bx - ax, bz - az), n = Math.ceil(d / 3); for (let i = 1; i < n; i++) { const f = i / n, p = { x: ax + (bx - ax) * f, z: az + (bz - az) * f, y: 0 }; if (collideBuildings(p, 0.05)) return false; } return true; };
+  function findLock() {
+    const g = GUNS[L.weapon]; if (!g) return null;
+    let best = null, bs = 1e9; const fx = Math.sin(S.h), fz = Math.cos(S.h);
+    for (const n of npcs) {
+      if (n.dead) continue;
+      const dx = n.x - S.x, dz = n.z - S.z, d = Math.hypot(dx, dz); if (d > g.range) continue;
+      const c = (dx * fx + dz * fz) / (d || 1); if (c < 0.45) continue;
+      const sc = d * (2 - c); if (sc < bs && visible(S.x, S.z, n.x, n.z)) { bs = sc; best = n; }
+    }
+    return best;
+  }
+  function shoot() {
+    const g = GUNS[L.weapon]; if (!g || S.mode !== 'foot' || inside.on || P.cool > 0) return;
+    if (!(L.guns[L.weapon] > 0)) { toast(`Out of ${g.n} ammo — buy more from Dre (📱 Hustle)`); P.cool = 0.6; return; }
+    L.guns[L.weapon]--; P.cool = g.rate; P.aimT = 1.4; life.touch();
+    const tgt = P.lock = findLock();
+    if (tgt) S.h += angDiff(Math.atan2(tgt.x - S.x, tgt.z - S.z), S.h); // snap to the target
+    sfx.shot && sfx.shot(L.weapon === 'smg' ? 0.6 : 1);
+    const muzzle = P.hand ? P.hand.clone() : new T.Vector3(S.x + Math.sin(S.h) * 0.5, gy(S.x, S.z, S.y) + 1.35, S.z + Math.cos(S.h) * 0.5);
+    let end;
+    if (tgt) {
+      const d = Math.hypot(tgt.x - S.x, tgt.z - S.z), hit = Math.random() < 0.95 - d / g.range * 0.45;
+      end = new T.Vector3(tgt.x + (hit ? 0 : (Math.random() - 0.5) * 2), gy(tgt.x, tgt.z) + 1.2 + (hit ? 0 : Math.random()), tgt.z + (hit ? 0 : (Math.random() - 0.5) * 2));
+      if (hit) damageNPC(tgt, g.dmg * (0.85 + Math.random() * 0.3));
+    } else end = muzzle.clone().add(new T.Vector3(Math.sin(S.h) * g.range, 0, Math.cos(S.h) * g.range));
+    tracer(muzzle, end);
+    alertAll();
+    if (!police.stars() && traffic.cars.some(c => c.cop && Math.hypot(c.x - S.x, c.z - S.z) < 130)) police.addWanted(2, 'Shots fired');
+  }
+  function damageNPC(n, dmg) {
+    n.hp -= dmg; n.state = n.role === 'guard' ? 'attack' : 'flee';
+    if (n.hp <= 0 && !n.dead) {
+      n.dead = true; n.v = 0;
+      if (n.role === 'target') contractDone();
+      else police.addWanted(Math.min(5, Math.max(3, police.stars() + 1)), 'Shootout');
+    }
+  }
+  function alertAll() { for (const n of npcs) if (!n.dead && Math.hypot(n.x - S.x, n.z - S.z) < 90) n.state = n.role === 'guard' ? 'attack' : 'flee'; }
+  // ── contracts from the Broker ──
+  const FIRST = ['Vinnie', 'Lou', 'Frankie', 'Dutch', 'Carla', 'Benny', 'Marco', 'Rita', 'Sully', 'Nicky'], NICK = ['“The Fish”', '“Two Phones”', '“Knuckles”', '“The Accountant”', '“Lucky”', '“Slick”', '“Ice”', '“Bones”'];
+  const LAST = ['Marchetti', 'Kowalski', 'Lindqvist', 'Delgado', 'Brennan', 'Okafor', 'Novak', 'Haugen', 'Ferraro', 'Pham'];
+  const WHY = ['a loan shark who crossed the wrong people', 'skimming from the Broker’s card games', 'talking to the feds', 'stole a shipment and sold it twice', 'runs a rival chop shop', 'owes a lot of money to a lot of people'];
+  const pk = a => a[(Math.random() * a.length) | 0];
+  function offer() {
+    if (L.contract && !L.contract.done) return L.contract;
+    const spots = jobs.allPois(p => p.c === 8 || p.c === 0 || p.c === 7), at = jobs.pickNear(spots, S.x, S.z, 800, 4500) || jobs.pickNear(spots, S.x, S.z, 300, 7000);
+    if (!at) return null;
+    const lv = hustle.repLvl(), guards = Math.min(3, Math.floor(lv / 2) + (Math.random() < 0.4 ? 1 : 0));
+    L.contract = { name: `${pk(FIRST)} ${pk(NICK)} ${pk(LAST)}`, why: pk(WHY), x: at.x, z: at.z, place: at.name, guards, pay: Math.round((2500 + guards * 1200 + Math.random() * 1500) * hustle.repMult() / 50) * 50, accepted: false, done: false, char: pk(['vegas', 'ty', 'remy', 'peasant', 'ch09']) };
+    life.touch(); return L.contract;
+  }
+  function accept() {
+    const c = offer(); if (!c) { toast('“Nothing for you right now.”'); return; }
+    if (!Object.keys(L.guns).length) { toast('“You’re gonna need a piece. Talk to Dre.”'); return; }
+    c.accepted = true; c.spawned = false; life.touch();
+    startNav(c.x, c.z, c.place); toast(`📱 The Broker: “${c.name}. ${c.place}. Make it quick.”`);
+  }
+  function contractDone() {
+    const c = L.contract; if (!c || c.done) return;
+    c.done = true; life.earn(c.pay, 'Cash — the Broker'); flashTag(`+${money(c.pay)}`);
+    police.addWanted(Math.max(3, police.stars()), 'Homicide'); hustle.addRep && hustle.addRep(40);
+    toast(`📱 The Broker: “It’s done. ${money(c.pay)} is yours. Now lose the heat.”`);
+    setTimeout(() => { if (L.contract === c) L.contract = null; }, 1000); life.touch(); life.save();
+    beam.visible = false; if (nav.route) endNav();
+  }
+  function contractFail(msg, quiet) {
+    const c = L.contract; if (c && c.accepted && !c.done) { L.contract = null; life.touch(); if (!quiet) toast(msg || 'Contract failed'); }
+    removeNPCs();
+  }
+  async function spawnContract(c) {
+    c.spawned = true;
+    const t = await spawnNPC(c.char, c.x + (Math.random() - 0.5) * 10, c.z + (Math.random() - 0.5) * 10, 'target').catch(() => null);
+    if (!t) { c.spawned = false; return; }
+    for (let i = 0; i < c.guards; i++) await spawnNPC(pk(['brute', 'ch24', 'ch39']), t.x + Math.cos(i * 2.1) * 3, t.z + Math.sin(i * 2.1) * 3, 'guard').catch(() => null);
+  }
+  // ── per frame ──
+  function update(dt, on) {
+    if (!LIFE_ON()) return;
+    fxTick(dt);
+    P.cool = Math.max(0, P.cool - dt); P.aimT = Math.max(0, P.aimT - dt); P.hurtT += dt;
+    if (P.hurtT > 5 && P.hp < 100 && P.hp > 0) P.hp = Math.min(100, P.hp + dt * 2.5);
+    const hv = $('hurt'); if (+hv.style.opacity > 0) hv.style.opacity = Math.max(0, +hv.style.opacity - dt * 1.2).toFixed(2);
+    if (P.fire) shoot();
+    // the contract: spawn the target when you get close; it escapes if it gets far enough away
+    const c = L.contract;
+    if (c && c.accepted && !c.done) {
+      const d = Math.hypot(c.x - S.x, c.z - S.z);
+      if (!c.spawned && d < 260) spawnContract(c);
+      const t = npcs.find(n => n.role === 'target');
+      const bx = t ? t.x : c.x, bz = t ? t.z : c.z;
+      beam.visible = true; beam.position.set(bx, gy(bx, bz) + 45, bz);
+      if (t && !t.dead && Math.hypot(t.x - S.x, t.z - S.z) > 220 && t.state === 'flee') contractFail(`${c.name} got away.`);
+    } else { beam.visible = false; if (npcs.length && npcs.every(n => Math.hypot(n.x - S.x, n.z - S.z) > 250)) removeNPCs(); }
+    // the people
+    const armed = GUNS[L.weapon] && S.mode === 'foot';
+    for (const n of npcs) {
+      const dP = Math.hypot(S.x - n.x, S.z - n.z);
+      if (!n.dead && S.mode !== 'foot' && Math.hypot(S.vx, S.vz) > 5 && dP < 2.4) { damageNPC(n, 999); bump(0.5); } // run over
+      n.aiming = false;
+      if (!n.dead) {
+        if (n.state === 'idle') {
+          if ((n.wT -= dt) <= 0) { n.wT = 3 + Math.random() * 5; n.tx = n.hx + (Math.random() - 0.5) * 16; n.tz = n.hz + (Math.random() - 0.5) * 16; }
+          moveNPC(n, dt, n.tx ?? n.x, n.tz ?? n.z, 1.2);
+          if (dP < (armed && P.aimT > 0 ? 40 : 9) || (n.role === 'guard' && dP < 14 && armed)) n.state = n.role === 'guard' ? 'attack' : 'flee';
+        } else if (n.state === 'flee') {
+          const ax = n.x - S.x, az = n.z - S.z, l = Math.hypot(ax, az) || 1;
+          moveNPC(n, dt, n.x + ax / l * 10 + Math.sin(n.t) * 4, n.z + az / l * 10 + Math.cos(n.t * 0.7) * 4, 5.2);
+        } else if (n.state === 'attack') {
+          if (dP > 13) moveNPC(n, dt, S.x, S.z, 4.6); else { n.v += (0 - n.v) * Math.min(1, dt * 6); n.h += angDiff(Math.atan2(S.x - n.x, S.z - n.z), n.h) * Math.min(1, dt * 8); }
+          if (dP < 40) {
+            n.aiming = true; n.cool -= dt;
+            if (n.cool <= 0 && visible(n.x, n.z, S.x, S.z)) {
+              n.cool = 0.75 + Math.random() * 0.5;
+              const from = n.F.bones[bindInfo(n.F).ih || 0].getWorldPosition(new T.Vector3()), to = new T.Vector3(S.x, gy(S.x, S.z, S.y) + 1.2, S.z);
+              const inCar = S.mode !== 'foot', hit = Math.random() < (inCar ? 0.3 : 0.45) - dP / 200;
+              if (!hit) to.add(new T.Vector3((Math.random() - 0.5) * 3, Math.random(), (Math.random() - 0.5) * 3));
+              tracer(from, to); sfx.shot && sfx.shot(0.5 * Math.max(0.2, 1 - dP / 60));
+              if (hit) hurt(inCar ? 4 : 8, 'shot by a bodyguard');
+            }
+          }
+        }
+      }
+      animNPC(n, dt);
+    }
+    // the player's gun: raised while aiming or just after a shot
+    for (const k in myGun) myGun[k].visible = false;
+    P.hand = null;
+    const F = ME.fig;
+    if (armed && F && !inside.on) {
+      P.lock = findLock();
+      if (P.lock) { ring.visible = true; ring.position.set(P.lock.x, gy(P.lock.x, P.lock.z) + 0.05, P.lock.z); } else ring.visible = false;
+      if (P.aimT > 0 || P.lock) {
+        const tx = P.lock ? P.lock.x : S.x + Math.sin(S.h) * 20, tz = P.lock ? P.lock.z : S.z + Math.cos(S.h) * 20;
+        const dir = new T.Vector3(tx - S.x, (P.lock ? gy(tx, tz) + 1.2 : gy(S.x, S.z, S.y) + 1.3) - (gy(S.x, S.z, S.y) + 1.4), tz - S.z).normalize();
+        P.hand = aimArm(F, dir); holdGun(myGun[L.weapon], P.hand, dir);
+      }
+    } else ring.visible = false;
+    // HUD
+    const hb = $('hpBox'); hb.classList.toggle('on', P.hp < 99.5 || !!police.stars() || armed);
+    $('hpFill').style.width = Math.max(0, P.hp) + '%';
+    document.body.classList.toggle('armed', !!armed && !inside.on);
+    const wb = $('btnWeap'); const g = GUNS[L.weapon]; wb.textContent = g ? `${g.ic}${L.guns[L.weapon] ?? 0}` : '✊'; wb.classList.toggle('has', Object.keys(L.guns).length > 0);
+  }
+  function cycleWeapon() {
+    const list = ['none', ...Object.keys(GUNS).filter(k => L.guns[k] != null)];
+    if (list.length < 2) { toast('No weapons — Dre sells them (📱 Hustle tab)'); return; }
+    L.weapon = list[(list.indexOf(L.weapon) + 1) % list.length]; life.touch();
+    toast(L.weapon === 'none' ? 'Weapon away' : `${GUNS[L.weapon].n} · ${L.guns[L.weapon]} rounds`);
+  }
+  function buy(k, ammo) {
+    const g = GUNS[k];
+    if (ammo) { if (L.guns[k] == null) return; if (L.money < g.packPrice) { toast(`You need ${money(g.packPrice)}`); return; } life.pay(g.packPrice, `Ammo — ${g.n}`); L.guns[k] += g.pack; toast(`+${g.pack} rounds`); }
+    else { if (L.guns[k] != null) return; if (L.money < g.price) { toast(`You need ${money(g.price)}`); return; } life.pay(g.price, `Dre — ${g.n}`); L.guns[k] = g.ammo0; L.weapon = k; toast(`${g.n} bought — ${g.ammo0} rounds. Switch weapons with the ${g.ic} button (Q).`); }
+    life.touch(); life.save();
+  }
+  function confiscate() { if (Object.keys(L.guns).length) { L.guns = {}; L.weapon = 'none'; toast('The police confiscated your guns'); life.touch(); } contractFail(null, true); }
+  // fire controls: hold FIRE (touch) / K / click
+  const fb = $('btnFire');
+  fb.addEventListener('pointerdown', e => { e.preventDefault(); P.fire = true; fb.classList.add('down'); });
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) fb.addEventListener(ev, () => { P.fire = false; fb.classList.remove('down'); });
+  addEventListener('keydown', e => { if (e.code === 'KeyK') P.fire = true; if (e.code === 'KeyQ' && !e.repeat && started && !paused) cycleWeapon(); });
+  addEventListener('keyup', e => { if (e.code === 'KeyK') P.fire = false; });
+  renderer.domElement.addEventListener('mousedown', e => { if (e.button === 0 && started && !paused && GUNS[L.weapon]) P.fire = true; });
+  addEventListener('mouseup', () => { if (!fb.classList.contains('down')) P.fire = false; });
+  $('btnWeap').onclick = cycleWeapon;
+  return { update, hurt, buy, cycleWeapon, offer, accept, contractFail, confiscate, removeNPCs, P, npcs, wasted };
+})();
+window.__combat = combat;
 const overlayUp = () => shiftGame.isOn() || phone.isOpen() || hustle.overlayOn();
 
 // ───────────────────────── challenges: timed runs, checkpoint rush, landmark hunt ─────────────────────────
@@ -6656,7 +6964,7 @@ function frame(now) {
     updateHud(info);
     updateNav(dt, info.vf);
     chal.update(dt);
-    if (LIFE_ON()) { life.tick(dt / 60 * jobs.clockRate()); life.burn(); jobs.update(dt); hustle.update(dt); police.update(dt, info); if ((mmFrame & 7) === 0) { hustle.settleBets(); life.scan(); life.hud(); jobs.hud(); jobs.tick(); } }
+    if (LIFE_ON()) { life.tick(dt / 60 * jobs.clockRate()); life.burn(); jobs.update(dt); hustle.update(dt); combat.update(dt); police.update(dt, info); if ((mmFrame & 7) === 0) { hustle.settleBets(); life.scan(); life.hud(); jobs.hud(); jobs.tick(); } }
     updatePoiLabels(dt);
     if (++mmFrame % 3 === 0) drawMinimap();
   }
