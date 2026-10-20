@@ -309,6 +309,56 @@
   #btnFire { display:none; position:absolute; right:calc(max(14px, env(safe-area-inset-right)) + 70px); bottom:calc(max(18px, env(safe-area-inset-bottom)) + 168px); width:78px; height:78px; border-radius:50%; border:3px solid rgba(255,255,255,.5); background:rgba(214,51,42,.75); color:#fff; font-weight:900; font-size:15px; letter-spacing:.06em; pointer-events:auto; touch-action:none; }
   #btnFire.down { background:#ff3b30; transform:scale(.94); } body.touch.armed #btnFire { display:block; }
   #hurt { position:fixed; inset:0; pointer-events:none; opacity:0; background:radial-gradient(ellipse at center, transparent 45%, rgba(200,0,0,.75) 100%); z-index:5; }
+  /* ── compact HUD ── */
+  .street .name { font-size:clamp(16px, 3.6vw, 24px); } .street .sub { font-size:12px; margin-top:2px; }
+  #statRow { position:absolute; left:max(14px, env(safe-area-inset-left)); top:calc(max(12px, env(safe-area-inset-top)) + 52px); display:flex; align-items:center; gap:6px; pointer-events:auto; }
+  #statRow > * { position:static !important; transform:none !important; left:auto !important; top:auto !important; margin:0 !important; }
+  #money { font-size:14px !important; padding:3px 10px !important; }
+  #lvPill { font-size:11px !important; padding:3px 8px !important; }
+  #wanted b { font-size:16px !important; letter-spacing:1px !important; display:inline !important; } #wanted span { font-size:10px !important; padding:2px 7px !important; margin:0 0 0 4px !important; vertical-align:2px; }
+  #wanted { background:rgba(12,14,18,.6); border-radius:999px; padding:2px 8px; white-space:nowrap; }
+  body.navigating #statRow { top:calc(max(12px, env(safe-area-inset-top)) + 118px); }
+  /* the speed limit sign sits beside the speedometer */
+  #limit { top:auto !important; left:calc(50% - 96px) !important; bottom:calc(max(18px, env(safe-area-inset-bottom)) + 4px); width:36px !important; padding:2px 0 1px !important; }
+  #limit small { font-size:6px !important; } #limit b { font-size:17px !important; }
+  body.touch #limit { bottom:calc(max(16px, env(safe-area-inset-bottom)) + 2px); left:calc(50% - 84px) !important; }
+  /* gauges: thin bars stacked over the speed */
+  #nitroBox, #fuelBox, #hpBox { width:110px !important; height:5px !important; }
+  #nitroBox { bottom:calc(max(18px, env(safe-area-inset-bottom)) + 56px) !important; }
+  #fuelBox { bottom:calc(max(18px, env(safe-area-inset-bottom)) + 64px) !important; } #fuelBox::before { font-size:9px !important; left:-15px !important; top:-4px !important; }
+  #hpBox { bottom:calc(max(18px, env(safe-area-inset-bottom)) + 72px) !important; }
+  body.touch #nitroBox { bottom:calc(max(16px, env(safe-area-inset-bottom)) + 46px) !important; } body.touch #fuelBox { bottom:calc(max(16px, env(safe-area-inset-bottom)) + 54px) !important; } body.touch #hpBox { bottom:calc(max(16px, env(safe-area-inset-bottom)) + 62px) !important; }
+  .speedo b { font-size:36px !important; } body.touch .speedo b { font-size:30px !important; } .speedo span { font-size:9px !important; }
+  #actBtn { bottom:calc(max(18px, env(safe-area-inset-bottom)) + 92px) !important; font-size:14px !important; padding:8px 14px !important; }
+  body.touch #actBtn { bottom:calc(max(16px, env(safe-area-inset-bottom)) + 140px) !important; }
+  /* tools: a short column; the rest folds into ⋯ */
+  .tools { gap:6px !important; }
+  .tools button { width:40px !important; height:40px !important; border-radius:11px !important; } .tools svg { width:20px !important; height:20px !important; }
+  #moreTray { display:none; position:absolute; right:48px; bottom:0; gap:6px; flex-direction:row-reverse; }
+  .tools.more #moreTray { display:flex; } .tools.more #btnMore { background:var(--accent); color:#1a1206; }
+  #btnWeap { min-width:40px !important; }
+  @media (max-width: 520px) {
+    #minimap { width:112px !important; height:112px !important; }
+    .tools { top:calc(max(12px, env(safe-area-inset-top)) + 122px) !important; }
+    .street { max-width:calc(100% - 140px) !important; } .street .sub { display:none; }
+    #statRow { top:calc(max(12px, env(safe-area-inset-top)) + 30px); flex-wrap:wrap; max-width:calc(100% - 140px); }
+    body.navigating #statRow { top:calc(max(12px, env(safe-area-inset-top)) + 112px); }
+    #gig, #hustle { top:calc(max(12px, env(safe-area-inset-top)) + 64px) !important; padding:6px 8px !important; max-width:calc(100% - 150px) !important; }
+    body.navigating #gig, body.navigating #hustle { top:calc(max(12px, env(safe-area-inset-top)) + 146px) !important; }
+    #gigMain, #huMain { font-size:16px !important; } #gigTitle, #huTitle { font-size:10px !important; }
+    #chal { top:calc(max(12px, env(safe-area-inset-top)) + 64px) !important; }
+  }
+  /* phones: the speed cluster sits above the steering buttons, clear of the pedals */
+  @media (max-width: 700px) {
+    body.touch .speedo { left:max(18px, env(safe-area-inset-left)) !important; transform:none !important; text-align:left; bottom:calc(max(16px, env(safe-area-inset-bottom)) + 100px) !important; }
+    body.touch .speedo b { font-size:28px !important; display:inline !important; } body.touch .speedo span { margin-left:3px; }
+    body.touch #nitroBox, body.touch #fuelBox, body.touch #hpBox { left:max(18px, env(safe-area-inset-left)) !important; transform:none !important; width:96px !important; }
+    body.touch #nitroBox { bottom:calc(max(16px, env(safe-area-inset-bottom)) + 92px) !important; }
+    body.touch #fuelBox { bottom:calc(max(16px, env(safe-area-inset-bottom)) + 140px) !important; left:calc(max(18px, env(safe-area-inset-left)) + 14px) !important; width:82px !important; }
+    body.touch #hpBox { bottom:calc(max(16px, env(safe-area-inset-bottom)) + 148px) !important; }
+    body.touch #limit { left:calc(max(18px, env(safe-area-inset-left)) + 102px) !important; bottom:calc(max(16px, env(safe-area-inset-bottom)) + 96px) !important; }
+    body.touch #driftTag { left:max(18px, env(safe-area-inset-left)); transform:none; bottom:calc(max(16px, env(safe-area-inset-bottom)) + 156px); }
+  }
 </style>
 </head>
 <body>
@@ -323,18 +373,22 @@
     <div class="nbTop"><div id="navArrow"></div><div><div id="navDist"></div><div id="navText"></div></div></div>
     <div class="nbBot"><span id="navEta"></span><button id="navMute" aria-label="Mute voice">🔊</button><button id="navEnd">End</button></div>
   </div>
+  <div id="statRow"><div id="money">$0</div><div id="lvPill">Lv 1</div><div id="wanted"></div></div>
   <div id="limit" style="display:none"><small>SPEED<br>LIMIT</small><b id="limitNum"></b></div>
   <canvas id="minimap" width="340" height="340"></canvas>
   <div class="tools">
-    <button id="btnWeap" aria-label="Weapon">✊</button>
     <button id="btnPhone" aria-label="Phone"><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg></button>
-    <button id="btnNav" aria-label="Navigate"><svg viewBox="0 0 24 24"><path d="M3 11 21 3l-8 18-2-8z"/></svg></button>
-    <button id="btnChal" aria-label="Challenges"><svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v4M8 21h8M9 18h6"/></svg></button>
     <button id="btnMap" aria-label="Map"><svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg></button>
-    <button id="btnCam" aria-label="Camera"><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
     <button id="btnDoor" aria-label="Get in or out"><svg viewBox="0 0 24 24"><path d="M6 3h10v18H6z"/><path d="M13 12h.01"/><path d="M16 6l3 1v12l-3 2"/></svg></button>
-    <button id="btnReset" aria-label="Back to road"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
-    <button id="btnMenu" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    <button id="btnWeap" aria-label="Weapon">✊</button>
+    <button id="btnMore" aria-label="More"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg></button>
+    <div id="moreTray">
+      <button id="btnNav" aria-label="Navigate"><svg viewBox="0 0 24 24"><path d="M3 11 21 3l-8 18-2-8z"/></svg></button>
+      <button id="btnChal" aria-label="Challenges"><svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v4M8 21h8M9 18h6"/></svg></button>
+      <button id="btnCam" aria-label="Camera"><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+      <button id="btnReset" aria-label="Back to road"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
+      <button id="btnMenu" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+    </div>
   </div>
   <div id="chal"><div class="chTop"><i id="chalArrow"><svg viewBox="0 0 24 24"><path d="M12 3 5 20l7-4 7 4z"/></svg></i><div><div id="chalTitle"></div><div class="chRow"><b id="chalMain"></b><span id="chalSub"></span></div></div><button id="chalQuit" aria-label="Quit challenge">✕</button></div></div>
   <div id="loading"></div>
@@ -343,11 +397,8 @@
   <div id="nitroBox"><i id="nitroFill"></i></div>
   <div id="fuelBox"><i id="fuelFill"></i></div>
   <button id="actBtn"></button>
-  <div id="money">$0</div>
-  <div id="lvPill">Lv 1</div>
   <div id="hpBox"><i id="hpFill"></i></div>
   <button id="btnFire" aria-label="Fire">FIRE</button>
-  <div id="wanted"></div>
   <div id="hustle"><div class="chTop"><i id="huArrow"><svg viewBox="0 0 24 24"><path d="M12 3 5 20l7-4 7 4z"/></svg></i><div style="min-width:0;flex:1"><div id="huTitle"></div><div id="huMain"></div><div id="huSub"></div></div><button id="huQuit">Bail</button></div></div>
   <div id="gig"><div class="chTop"><i id="gigArrow"><svg viewBox="0 0 24 24"><path d="M12 3 5 20l7-4 7 4z"/></svg></i><div style="min-width:0"><div id="gigTitle"></div><div id="gigMain"></div><div id="gigSub"></div></div><button id="gigQuit">Go offline</button></div></div>
   <div id="driftTag"></div>
@@ -469,6 +520,6 @@
 </div>
 
 <script>window.TCD_STATIC = true;</script>
-<script type="module" src="game.js?v=47"></script>
+<script type="module" src="game.js?v=48"></script>
 </body>
 </html>

@@ -1056,6 +1056,9 @@ function computeHeights(roads, grid) {
   // only freeway-ish nodes (no city street meeting there) may dip below ground
   const canSink = new Uint8Array(N);
   roads.forEach((r, ri) => { r.tunnel = !!((r.flags & 4) && SINKABLE.has(r.c)); for (const id of ids[ri]) canSink[id] = canSink[id] === 2 ? 2 : SINKABLE.has(r.c) ? 1 : 2; });
+  // service drives / parking aisles (and nothing else) at a node: those may dip under a bridge instead of raising it
+  const canDip = new Uint8Array(N).fill(1);
+  roads.forEach((r, ri) => { if (r.c !== 13) for (const id of ids[ri]) canDip[id] = 0; });
   const trenchCand = []; // [street bridge, freeway, segment] — decided after the bridges are placed
   // 2) a bridge is raised only if it passes over another road (creek culverts stay flat) — but a city street
   //    bridging a freeway stays at grade and the freeway drops into a trench instead (the usual urban layout)
@@ -1065,6 +1068,7 @@ function computeHeights(roads, grid) {
     crossings(ri, (s, oi, t) => {
       const o = roads[oi]; if ((o.flags & 2) && layerOf(o) >= layer) return;
       if (o.tunnel) return; // already underground
+      if (o.c === 13 && r.c !== 13) return; // a driveway or parking aisle under the bridge dips instead (step 4)
       if (layer === 1 && r.c >= 2 && r.c <= 7 && SINKABLE.has(o.c) && !(o.flags & 2)) { trenchCand.push([ri, oi, t]); return; }
       crosses = true;
     });
@@ -1126,7 +1130,7 @@ function computeHeights(roads, grid) {
       const a = adj[id];
       for (let k = 0; k < a.length; k += 2) { const v = a[k]; if (locked[v] || deck[v] > 0) continue; const nh = h + 0.09 * a[k + 1]; if (nh < U[v] - 0.01) { U[v] = nh; mpush(nh, v); } }
     }
-    for (let i = 0; i < N; i++) if (locked[i]) H[i] = 0; else if (!(deck[i] > 0)) H[i] = canSink[i] === 1 ? Math.min(H[i], U[i]) : Math.max(0, Math.min(H[i], U[i]));
+    for (let i = 0; i < N; i++) if (locked[i]) H[i] = 0; else if (!(deck[i] > 0)) H[i] = canSink[i] === 1 || canDip[i] ? Math.min(H[i], U[i]) : Math.max(0, Math.min(H[i], U[i]));
     // trenches: from tunnels and sunken stretches, climb back to street level at the ramp grade
     const D = new Float64Array(N), dheap = [];
     for (let i = 0; i < N; i++) if (sink[i] < 0) { D[i] = sink[i]; mpushD(dheap, sink[i], i); }
@@ -1162,7 +1166,9 @@ function computeHeights(roads, grid) {
     let raised = false;
     for (const [ri, oi, t] of trenchCand) {
       const a = ids[oi][t], b = ids[oi][t + 1];
-      if (H[a] > 0.3 || H[b] > 0.3 || canSink[a] !== 1 || canSink[b] !== 1) { if (!roads[ri].raised) { setDeck(ri, DECK); raised = true; } }
+      // the freeway only stays up (and the street goes over) when it's on, or climbing to, one of its own bridges close by
+      const climbing = (H[a] > 0.3 || H[b] > 0.3) && Math.min(nearDeck[a], nearDeck[b]) < 230;
+      if (deck[a] > 0 || deck[b] > 0 || canSink[a] !== 1 || canSink[b] !== 1 || climbing) { if (!roads[ri].raised) { setDeck(ri, DECK); raised = true; } }
       else { sink[a] = Math.min(sink[a], -TRENCH); sink[b] = Math.min(sink[b], -TRENCH); }
     }
     solve(); void raised;
@@ -1177,10 +1183,11 @@ function computeHeights(roads, grid) {
         const o = roads[oi]; if (r.tunnel || o.c > 12 || locked[ids[oi][t]] && locked[ids[oi][t + 1]]) return;
         const hu = hAt(ri, s, u), hl = hAt(oi, t, v);
         if (hu < hl || hu - hl >= CLEAR - 0.05) return;
-        const sinkable = canSink[ids[oi][t]] === 1 && canSink[ids[oi][t + 1]] === 1;
+        const dip = canDip[ids[oi][t]] && canDip[ids[oi][t + 1]];
+        const sinkable = (canSink[ids[oi][t]] === 1 && canSink[ids[oi][t + 1]] === 1) || dip;
         if (hu < 0.3 && !sinkable) return;
         if (deck[ids[oi][t]] > 0 || deck[ids[oi][t + 1]] > 0) return; // two decks: trust the mapped layers
-        const cap = sinkable ? hu - CLEAR - 1 : Math.max(0, hu - CLEAR); // freeways duck under
+        const cap = sinkable ? hu - CLEAR - (dip ? 0 : 1) : Math.max(0, hu - CLEAR); // freeways (and driveways) duck under
         for (const id of [ids[oi][t], ids[oi][t + 1]]) if (cap < pinU[id] - 0.01) { pinU[id] = cap; changed = true; }
       });
     });
@@ -1255,7 +1262,7 @@ function quadUp(buf, a, b, c, d) { // quad whose front face points upward
   if (uz * vx - ux * vz < 0 || (Math.abs(uz * vx - ux * vz) < 1e-6 && uy * vz - uz * vy < 0)) quad(buf, a, d, c, b); else quad(buf, a, b, c, d);
 }
 // freeway tunnel below street level: walls, ceiling and lights follow the road; a headwall closes each portal
-function tunnelParts(cbuf, lbuf, pts, hs, width) {
+function tunnelParts(cbuf, lbuf, pts, hs, width, inner) {
   const n = pts.length / 2; if (n < 2) return;
   const iw = width + 0.6, C = TUN_CEIL;
   const I = ribbonEdges(pts, iw);
@@ -1272,7 +1279,7 @@ function tunnelParts(cbuf, lbuf, pts, hs, width) {
       quad(lbuf, [cx - dz * 0.4 - dx * 1.4, y, cz + dx * 0.4 - dz * 1.4], [cx + dz * 0.4 - dx * 1.4, y, cz - dx * 0.4 - dz * 1.4], [cx + dz * 0.4 + dx * 1.4, y, cz - dx * 0.4 + dz * 1.4], [cx - dz * 0.4 + dx * 1.4, y, cz + dx * 0.4 + dz * 1.4]);
     }
   }
-  for (const i of [0, n - 1]) { const top = Math.max(hs[i] + C, 0.4); quad(cbuf, P(I.L, i, hs[i] + C), P(I.R, i, hs[i] + C), P(I.R, i, top + 0.6), P(I.L, i, top + 0.6)); } // portal headwalls
+  for (const i of [0, n - 1]) { if (inner && inner(pts[i * 2], pts[i * 2 + 1])) continue; const top = Math.max(hs[i] + C, 0.4); quad(cbuf, P(I.L, i, hs[i] + C), P(I.R, i, hs[i] + C), P(I.R, i, top + 0.6), P(I.L, i, top + 0.6)); } // portal headwalls
 }
 // open trench (a sunken freeway): retaining walls up to street level, a hole in the ground above it
 function trenchParts(cbuf, mbuf, pts, hs, width) {
@@ -1476,20 +1483,25 @@ function solveRoads(t, cascade) {
     }
   }
   for (const r of list) { const p = r.pts; for (let s = 0; s < p.length / 2 - 1; s++) gridAddSeg(grid, p[s * 2], p[s * 2 + 1], p[s * 2 + 2], p[s * 2 + 3], { road: r, s }); }
-  const own = new Set(t.roads), heights = computeHeights(list, grid), fresh = new Map();
-  list.forEach((r, i) => { if (own.has(r)) r.hs = heights[i]; else fresh.set(r.key, heights[i]); });
-  for (const m of t.roadMeshes) { t.group.remove(m); m.geometry.dispose(); }
-  t.roadMeshes = [];
-  buildRoadGeometry(t);
-  // neighbours solved before this tile existed may now disagree at the shared edge: redo those once
-  if (cascade) for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
-    const n = (i || j) && tiles.get((t.tx + i) + ',' + (t.ty + j)); if (!n || !n.roadMeshes || n.dead) continue;
-    let off = false;
-    for (const r of n.roads) { const h = fresh.get(r.key); if (!h || !r.hs) continue; for (let k = 0; k < h.length && !off; k++) off = Math.abs(h[k] - r.hs[k]) > 0.5; if (off) break; }
-    // the same way also appears in our tile: compare against our copy
-    if (!off) for (const r of n.roads) { const o = t.roads.find(q => q.key === r.key); if (!o || !r.hs) continue; for (let k = 0; k < o.hs.length && !off; k++) off = Math.abs(o.hs[k] - r.hs[k]) > 0.5; if (off) break; }
-    if (off) setTimeout(() => { if (!n.dead) solveRoads(n, false); }, 0);
+  const heights = computeHeights(list, grid), byKey = new Map(), own = new Set(t.roads);
+  // ways reaching into this tile take the new heights; the outer context keeps what its own tile solved (it saw more
+  // of its own surroundings), so neighbouring tiles agree where their ways meet
+  const inTile = r => { const p = r.pts; for (let k = 0; k < p.length; k += 2) if (p[k] > x0 && p[k] < x1 && p[k + 1] > z0 && p[k + 1] < z1) return true; return false; };
+  list.forEach((r, i) => { if (own.has(r) || !r.hs || inTile(r)) byKey.set(r.key, heights[i]); });
+  // every copy of a way gets the same heights: a way that crosses a tile edge is stored (and drawn) by each tile it
+  // touches, and copies solved separately used to disagree — a road at grade drawn through its own raised or sunken twin
+  const dirty = new Set([t]);
+  for (const n of tiles.values()) {
+    if (!n.roadMeshes || n.dead) continue;
+    for (const r of n.roads) {
+      const h = byKey.get(r.key); if (!h) continue;
+      if (n !== t && r.hs && r.hs.length === h.length) { let same = true; for (let k = 0; k < h.length && same; k++) same = Math.abs(h[k] - r.hs[k]) < 0.05; if (same) continue; }
+      r.hs = h; dirty.add(n);
+    }
   }
+  for (const r of t.roads) if (!r.hs) r.hs = byKey.get(r.key) || new Float32Array(r.pts.length / 2);
+  for (const n of dirty) rebuildRoadGeometry(n);
+  void cascade;
 }
 // intersections: one clean paved area per junction of city streets — lane lines stop at its edge and the corners
 // get rounded curb returns (the crossing streets' own ribbons just overlap underneath)
@@ -1575,6 +1587,9 @@ function buildRoadGeometry(t) {
   const add = m => { t.group.add(m); t.roadMeshes.push(m); };
   // 3) geometry, low priority first
   const bridgeBuf = new GeoBuf(), maskBuf = new GeoBuf(), lightBuf = new GeoBuf();
+  // a tunnel mapped as several ways: only its real portals get a headwall, not the joins between the pieces
+  const tunnelEnds = new Map(); // (the same way stored in two tiles only counts once)
+  { const seenK = new Set(); for (const n of tiles.values()) for (const r of n.roads || []) { if (!r.tunnel || seenK.has(r.key)) continue; seenK.add(r.key); const p = r.pts; for (const i of [0, p.length / 2 - 1]) { const k = Math.round(p[i * 2] * 2) + ',' + Math.round(p[i * 2 + 1] * 2); tunnelEnds.set(k, (tunnelEnds.get(k) || 0) + 1); } } }
   const order = objs.map((o, i) => i).sort((a, b) => objs[a].spec.prio - objs[b].spec.prio);
   for (const i of order) {
     const o = objs[i], spec = o.spec;
@@ -1587,7 +1602,7 @@ function buildRoadGeometry(t) {
     ribbon(getBuf(mat), P, spec.width, y, 1, lifted || sunk ? Hs : null);
     if (o.c >= 2 && o.c <= 7 && !lifted && !sunk && !o.tunnel) ribbon(getBuf(walkMat), o.pts, spec.width + 6, 0.045, 1); // curb + sidewalk
     if (lifted) bridgeParts(bridgeBuf, P, Hs, spec.width, o);
-    if (o.tunnel) tunnelParts(bridgeBuf, lightBuf, o.pts, o.hs, spec.width);
+    if (o.tunnel) tunnelParts(bridgeBuf, lightBuf, o.pts, o.hs, spec.width, (x, z) => tunnelEnds.get(Math.round(x * 2) + ',' + Math.round(z * 2)) > 1);
     else if (sunk) trenchParts(bridgeBuf, maskBuf, o.pts, o.hs, spec.width);
   }
   const jb = new GeoBuf(); buildJunctions(t, jb); { const m = jb.mesh(junctionMat); if (m) { m.renderOrder = 1; add(m); } }
@@ -4141,8 +4156,11 @@ const traffic = (() => {
         if (c.v > 3) { P.vx += nx * c.v * 0.5; P.vz += nz * c.v * 0.5; P.vy = Math.max(P.vy || 0, 2.5); bump(Math.min(1, c.v / 15)); }
         c.v *= 0.2; c.hitT = 3; continue;
       }
-      if (vn < 0) { P.vx -= 1.3 * vn * nx; P.vz -= 1.3 * vn * nz; P.vx *= 0.8; P.vz *= 0.8; if (vn < -4) bump(Math.min(1, -vn / 20)); if (P.drift) endDrift(true); if (vn < -5 && window.__hitCar) window.__hitCar(c, -vn); }
-      c.v *= 0.3; c.hitT = 2.5;
+      if (vn < 0) { // glance off: lose the push into the other car (with a little bounce), keep most of the slide along it
+        P.vx -= 1.25 * vn * nx; P.vz -= 1.25 * vn * nz; const k = vn < -6 ? 0.9 : 0.985; P.vx *= k; P.vz *= k;
+        if (vn < -4) bump(Math.min(1, -vn / 20)); if (vn < -9 && P.drift) endDrift(true); if (vn < -5 && window.__hitCar) window.__hitCar(c, -vn);
+        c.v *= vn < -6 ? 0.4 : 0.8; c.hitT = vn < -6 ? 2.5 : 0.8;
+      }
     }
   }
   return { addRoads, removeTile, setSignals, update, collide, cars, issues, spawn };
@@ -4555,9 +4573,9 @@ function updatePoiLabels(dt) {
   }
   near.sort((a, b) => a[0] - b[0]);
   poiGroup.clear();
-  for (const [d, p] of near.slice(0, 10)) {
+  for (const [d, p] of near.slice(0, 6)) { // a few small labels: they were crowding the screen
     const sp = poiSprite(p);
-    const k = Math.max(4, d * 0.045);
+    const k = Math.max(2.8, d * 0.03);
     sp.scale.set(k * sp.material.userData.aspect * 0.55, k * 0.55, 1);
     sp.position.set(p.x, 7 + k * 0.4, p.z);
     sp.material.opacity = Math.min(1, (260 - d) / 60);
@@ -6853,6 +6871,7 @@ $('btnCam').onclick = cycleCam;
 $('btnMap').onclick = openMap;
 $('btnReset').onclick = () => { if (!inside.on) respawnOnRoad(); };
 $('btnDoor').onclick = toggleFoot;
+{ const tl = document.querySelector('.tools'); $('btnMore').onclick = () => tl.classList.toggle('more'); $('moreTray').addEventListener('click', () => setTimeout(() => tl.classList.remove('more'), 150)); }
 // character picker (Golf Go roster)
 { const cs = $('optChar'); for (const [id, name] of CHAR_LIST) { const o = document.createElement('option'); o.value = id; o.textContent = name; cs.appendChild(o); }
   cs.value = settings.char || 'ch01'; cs.onchange = e => { settings.char = e.target.value; saveSettings(); if (S.mode === 'foot') useCharacter(settings.char); }; }
