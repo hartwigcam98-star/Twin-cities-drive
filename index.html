@@ -452,7 +452,7 @@
   <div class="phoneCase">
     <div class="phoneTop"><b>📱 Phone</b><button id="phoneClose">Close</button></div>
     <div id="phoneBody"></div>
-    <div class="phoneTabs"><button data-tab="texts"><i>💬</i>Texts</button><button data-tab="bank"><i>🏦</i>Bank</button><button data-tab="jobs"><i>💼</i>Jobs</button><button data-tab="skills"><i>⭐</i>Skills</button><button data-tab="hustle"><i>🕶️</i>Hustle</button><button data-tab="homes"><i>🏢</i>Homes</button><button data-tab="cars"><i>🚗</i>Cars</button><button data-tab="garage"><i>🔑</i>Garage</button></div>
+    <div class="phoneTabs"><button data-tab="texts"><i>💬</i>Texts</button><button data-tab="bank"><i>🏦</i>Bank</button><button data-tab="jobs"><i>💼</i>Jobs</button><button data-tab="skills"><i>⭐</i>Skills</button><button data-tab="hustle"><i>🕶️</i>Hustle</button><button data-tab="biz"><i>🏪</i>Biz</button><button data-tab="homes"><i>🏢</i>Homes</button><button data-tab="cars"><i>🚗</i>Cars</button><button data-tab="garage"><i>🔑</i>Garage</button></div>
   </div>
 </div>
 <div id="firstLoad"><b>Building the streets…</b>The first visit to a part of the metro pulls real map data, which can take up to a minute. After that it loads instantly.</div>
@@ -540,12 +540,12 @@
 
 <script>
 // GitHub Pages lets browsers keep this page for up to 10 minutes: check for a newer build and load it right away
-window.TCD_BUILD = 52;
+window.TCD_BUILD = 53;
 fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
   v = parseInt(v); if (v > window.TCD_BUILD && !new URLSearchParams(location.search).has('b' + v)) location.replace(location.pathname + '?b' + v + location.hash);
 }).catch(() => {});
 </script>
 <script>window.TCD_STATIC = true;</script>
-<script type="module" src="game.js?v=52"></script>
+<script type="module" src="game.js?v=53"></script>
 </body>
 </html>

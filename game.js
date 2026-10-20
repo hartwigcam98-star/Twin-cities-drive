@@ -4349,6 +4349,7 @@ function drawMinimap() {
     mmc.font = '15px system-ui'; mmc.textAlign = 'center'; mmc.textBaseline = 'middle';
     mmc.fillText('🏠', R + (dx * ca - dz * sa) * k, R + (dx * sa + dz * ca) * k);
   }
+  if (LIFE_ON() && window.__biz) for (const b of __biz.owned()) { const dx = (b.x - S.x) * scale, dz = (b.z - S.z) * scale, dl = Math.hypot(dx, dz); if (dl > R - 8) continue; mmc.font = '13px system-ui'; mmc.textAlign = 'center'; mmc.textBaseline = 'middle'; mmc.fillText(b.ic, R + dx * ca - dz * sa, R + dx * sa + dz * ca); }
   if (LIFE_ON() && LIFE.own) { // your own car, parked while you joyride
     const dx = (LIFE.own.x - S.x) * scale, dz = (LIFE.own.z - S.z) * scale, dl = Math.hypot(dx, dz), k = dl > R - 14 ? (R - 14) / dl : 1;
     mmc.font = '14px system-ui'; mmc.textAlign = 'center'; mmc.textBaseline = 'middle'; mmc.fillText('🔑', R + (dx * ca - dz * sa) * k, R + (dx * sa + dz * ca) * k);
@@ -5009,7 +5010,7 @@ const life = (() => {
     if (!LIFE_ON() || !started || paused) { if (act) { act = null; btn.classList.remove('on'); } return; }
     const spd = Math.hypot(S.vx, S.vz), c = L.cars[L.active];
     if (inside.on) { const a = inside.action(); if ((a && a.label) !== (act && act.label)) { act = a; btn.textContent = a ? a.label : ''; btn.classList.toggle('on', !!a); } return; }
-    let a = story.action() || jobs.action() || hustle.action() || garage.action();
+    let a = story.action() || jobs.action() || biz.action() || hustle.action() || garage.action();
     if (a) {} else if (L.home && Math.hypot(L.home.x - S.x, L.home.z - S.z) < (L.home.kind === 'house' ? 30 : 50) && spd < 2) a = { label: `🚪 Go inside${L.home.kind === 'house' ? '' : ' · ' + L.home.unit}`, fn: () => inside.enter() };
     else if (S.mode !== 'foot' && spd < 1.5 && c && c.fuel < TANK - 0.5) { const g = nearby('gas', 30); if (g) a = { label: `⛽ Fill up · ${money((TANK - c.fuel) * GAS)}`, fn: fillUp }; }
     if (!a && spd < 3) { const d = nearby('dealer', 70); if (d) a = { label: `🚗 Shop at ${d.name}`, fn: () => phone.open('cars') }; }
@@ -5134,6 +5135,16 @@ const phone = (() => {
           h += `<div class="pRow">${mine ? '✅ ' : ok ? '' : '🔒 '}${esc(rk.t)}${ok || mine ? '' : ` <small>${jobs.reqText(rk.req)}</small>`}<span>${money(rk.w)}/hr${ok && !mine ? ` <button class="pBtn sm mini" data-act="apply" data-k="${lad.k}" data-r="${r}">Apply</button>` : ''}</span></div>`;
         });
         h += '</div>';
+      });
+    } else if (tab === 'biz') {
+      const own = biz.owned(), daily = own.reduce((a, b) => a + biz.rate(b), 0);
+      h += `<div class="pBig">${money(daily)}<small style="font-size:14px;opacity:.6"> / day</small></div><div class="pSub">${own.length} business${own.length === 1 ? '' : 'es'} · earnings pile up in each safe (up to 5 days). Collect in person, or let the manager deposit it for a 15% cut.</div>`;
+      BIZ.forEach(b => {
+        const o = L.biz[b.k], d = Math.hypot(b.x - S.x, b.z - S.z);
+        h += `<div class="pCard${o ? ' ok' : ''}"><b>${b.ic} ${esc(b.n)}</b><span class="pR">${o ? money(biz.rate(b)) + '/day' : money(b.price)}</span><div class="pSub">${esc(b.area)} · ${fmtDist(d)}${o ? ` · renovations ${'●'.repeat(o.lv)}${'○'.repeat(3 - o.lv)} · safe <b>${money(o.safe)}</b>` : ` · earns ~${money(b.day * hustle.repMult())}/day`}</div><div class="pUnits">`;
+        if (o) { if (o.safe >= 1) h += `<button class="pBtn sm" data-act="bizdep" data-k="${b.k}">Deposit ${money(o.safe * 0.85)}</button>`; if (o.lv < 3) h += `<button class="pBtn sm ghost" data-act="bizren" data-k="${b.k}">Renovate · ${money(Math.round(b.price * 0.5 * (o.lv + 1) / 100) * 100)}</button>`; }
+        else h += `<button class="pBtn sm" data-act="bizbuy" data-k="${b.k}">Buy</button>`;
+        h += `<button class="pBtn sm ghost" data-act="navspot" data-x="${b.x.toFixed(0)}" data-z="${b.z.toFixed(0)}" data-n="${esc(b.n)}">Navigate</button></div></div>`;
       });
     } else if (tab === 'texts') {
       story.read(); const st = story.st(), m = story.cur();
@@ -5264,6 +5275,9 @@ const phone = (() => {
     else if (a === 'spend') { jobs.spend(b.dataset.k); render(); }
     else if (a === 'pkg') { close(); hustle.startRun(); }
     else if (a === 'repair') { garage.repair(); render(); }
+    else if (a === 'bizbuy') { biz.buy(b.dataset.k); render(); }
+    else if (a === 'bizren') { biz.renovate(b.dataset.k); render(); }
+    else if (a === 'bizdep') { biz.collect(b.dataset.k, true); render(); }
     else if (a === 'paint') { garage.repaint(b.dataset.c); render(); }
     else if (a === 'upg') { garage.upgrade(b.dataset.k); render(); }
     else if (a === 'tow') { garage.tow(); }
@@ -6905,12 +6919,24 @@ const STORY = [
     texts: ['Sal the bookie has been skimming from my card games.', 'His crew is holed up in a warehouse lot on the Northside. Make them understand. Bring ammo.'] },
   { id: 'truck', from: 'The Broker', title: 'The big score', ev: ['heist'], reward: 0, goal: 'Ram the armored truck until it stops, grab the cash, then lose the cops', enc: { kind: 'truck' },
     texts: ['One last job. An armored truck just left the bank downtown with a week of deposits.', 'Ram it until it stops, take the cash, and lose the heat. After this you work for no one.'] },
+  // ── chapter 2: going legit (sort of) ──
+  { id: 'legit', from: 'Marcus', title: 'Going legit', ev: ['buy-biz'], reward: 1000, goal: 'Buy a business (📱 Biz)', need: () => biz.owned().length >= 1,
+    texts: ['Bro. You can’t just sit on a pile of armored-truck money.', 'Buy a business — a taco truck, a car wash, whatever. Clean money, steady money. Check the Biz tab on your phone.'] },
+  { id: 'collect', from: 'Marcus', title: 'Payday', ev: ['collect'], reward: 500, goal: 'Collect the cash from one of your businesses',
+    texts: ['Your place is making money while you sleep 😎', 'Swing by and empty the safe, or have the manager deposit it (they keep 15%).'] },
+  { id: 'volkov', from: 'The Broker', title: 'Protection', ev: ['clear'], reward: 6000, goal: 'Run the Volkov crew out of your business', enc: { kind: 'clear', at: () => { const b = biz.owned()[0]; return b ? [b.x + 25, b.z + 15] : proj(44.9483, -93.2600); }, n: 4, name: 'your business' },
+    texts: ['You have a problem. The Volkov crew is leaning on your business — they want a cut.', 'Nobody takes a cut but me. Go show them the door.'] },
+  { id: 'empire', from: 'Marcus', title: 'Empire', ev: ['buy-biz'], reward: 5000, goal: 'Own three businesses', need: () => biz.owned().length >= 3,
+    texts: ['Okay you’re basically a CEO now?? 😂', 'Get to three businesses and I’ll finally stop calling you my couch roommate.'] },
+  { id: 'kingpin', from: 'The Broker', title: 'Kingpin', ev: ['clear'], reward: 20000, goal: 'Take down Viktor Volkov at his scrapyard in Northeast', enc: { kind: 'clear', at: [45.0230, -93.2550], n: 6, name: 'Volkov scrapyard' },
+    texts: ['Viktor Volkov wants your whole operation. He runs things from a scrapyard off the river in Northeast.', 'End it. Bring every bullet you own. After tonight, this city answers to you.'] },
 ];
 const story = (() => {
   const L = LIFE;
   const S0 = () => ({ i: 0, msgs: [], unread: 0, done: false, pending: true });
   if (!L.story) L.story = S0();
   const st = L.story;
+  if (st.done && st.i < STORY.length) { st.done = false; st.pending = true; } // chapter 2 arrived
   const el = $('objective'); let kicked = false;
   const cur = () => STORY[st.i];
   function text(from, msg) { st.msgs.push({ from, msg, h: L.hours }); if (st.msgs.length > 80) st.msgs.shift(); st.unread++; life.touch(); toast(`💬 ${from}: ${msg.length > 70 ? msg.slice(0, 68) + '…' : msg}`); buzz(25); }
@@ -6920,13 +6946,14 @@ const story = (() => {
     life.save();
   }
   function emit(ev) {
-    const m = cur(); if (!m || st.pending || st.done || !m.ev.includes(ev)) return;
+    const m = cur(); if (!m || st.pending || st.done || !m.ev.includes(ev) || (m.need && !m.need())) return;
     if (m.reward) life.earn(m.reward, `Story: ${m.title}`);
     flashTag('MISSION COMPLETE'); toast(`✅ ${m.title}${m.reward ? ` · +${money(m.reward)}` : ''}`); sfx.whoosh();
     hustle.addRep(m.id === 'job' || m.id === 'home' ? 0 : 15);
     clearEnc();
     st.i++; st.pending = true; life.touch(); life.save();
-    if (!cur()) { st.done = true; setTimeout(() => { text('Marcus', 'Bro… everybody’s talking about the armored truck. Was that YOU?? 😳'); text('The Broker', 'You run this town now. Spend it wisely.'); flashTag('THE END?'); }, 4000); return; }
+    if (m.id === 'truck') setTimeout(() => text('Marcus', 'Bro… everybody’s talking about the armored truck. Was that YOU?? 😳'), 2500);
+    if (!cur()) { st.done = true; setTimeout(() => { text('Marcus', 'They’re calling you the Kingpin of the Twin Cities. I still have your couch if you ever need it 😂'); text('The Broker', 'The city is yours. Try not to get bored.'); flashTag('KINGPIN'); }, 4000); return; }
     kicked = true; setTimeout(begin, 7000);
   }
   // ── set pieces ──
@@ -6935,7 +6962,7 @@ const story = (() => {
   const beam = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 120, 12, 1, true), mkMat); beam.visible = false; scene.add(beam);
   function clearEnc() { if (enc && enc.truck) enc.truck.dead = true; enc = null; beam.visible = false; }
   async function spawnClear(m) {
-    const [x, z] = proj(m.enc.at[0], m.enc.at[1]);
+    const [x, z] = typeof m.enc.at === 'function' ? m.enc.at() : proj(m.enc.at[0], m.enc.at[1]);
     enc = { kind: 'clear', x, z, npcs: [], spawning: true };
     for (let k = 0; k < m.enc.n; k++) { const n = await combat.spawnNPC(['brute', 'ch24', 'ch39'][k % 3], x + Math.cos(k * 2.1) * 4, z + Math.sin(k * 2.1) * 4, 'guard').catch(() => null); if (n) { n.hp = 90; enc.npcs.push(n); } }
     enc.spawning = false;
@@ -6962,8 +6989,9 @@ const story = (() => {
     $('btnPhone').classList.toggle('msg', st.unread > 0);
     if (!m || st.pending) { beam.visible = false; return; }
     // set pieces
+    if (m.need && m.need()) { emit(m.ev[0]); return; } // already done (e.g. you own enough businesses)
     if (m.enc && m.enc.kind === 'clear') {
-      const [x, z] = proj(m.enc.at[0], m.enc.at[1]);
+      const [x, z] = typeof m.enc.at === 'function' ? m.enc.at() : proj(m.enc.at[0], m.enc.at[1]);
       beam.visible = !enc || enc.npcs.some(n => !n.dead); beam.position.set(x, terrainAt(x, z) + 60, z);
       if (!enc && Math.hypot(x - S.x, z - S.z) < 260) spawnClear(m);
       if (enc && enc.kind === 'clear' && !enc.spawning) {
@@ -7069,6 +7097,57 @@ const garage = (() => {
   return { damage, totaled, dmg, repair, repairCost, repaint, upgrade, tow, update, action, nearShop };
 })();
 window.__garage = garage;
+// ───────────────────────── businesses you own ─────────────────────────
+// Made-up businesses at real neighbourhoods. They earn every game hour into a safe on site (up to 5 days' worth):
+// drive by to collect, or have the manager deposit it for a 15% cut. Renovations raise the income.
+const BIZ = (() => {
+  const B = (k, n, ic, la, lo, price, day, area) => { const [x, z] = proj(la, lo); return { k, n, ic, x, z, price, day, area }; };
+  return [
+    B('taco', 'El Norteño taco truck', '🌮', 44.9765, -93.2730, 28000, 350, 'Nicollet Mall'),
+    B('wash', 'Lake Street Car Wash', '🧽', 44.9484, -93.2398, 45000, 650, 'Lake Street'),
+    B('laundry', 'Fresh Folds Laundromat', '🧺', 44.9601, -93.1182, 60000, 700, 'Frogtown, St. Paul'),
+    B('bar', 'Northern Lights Lounge', '🍺', 44.9992, -93.2601, 140000, 1500, 'Northeast'),
+    B('lot', 'Twin Town Auto Sales', '🚙', 45.0897, -93.2985, 220000, 2200, 'Brooklyn Park'),
+    B('club', 'Club Aurora', '🪩', 44.9846, -93.2731, 450000, 4200, 'Warehouse District'),
+  ];
+})();
+const biz = (() => {
+  const L = LIFE;
+  if (!L.biz) L.biz = {};
+  const owned = () => BIZ.filter(b => L.biz[b.k]);
+  const rate = b => b.day * (1 + 0.5 * ((L.biz[b.k] && L.biz[b.k].lv) || 0)) * hustle.repMult();
+  function buy(k) {
+    const b = BIZ.find(x => x.k === k); if (!b || L.biz[k]) return;
+    if (L.money < b.price) { toast(`You need ${money(b.price)}`); return; }
+    life.pay(b.price, `Bought ${b.n}`); L.biz[k] = { lv: 0, safe: 0, since: L.hours }; life.touch(); life.save();
+    flashTag('NEW BUSINESS'); toast(`${b.ic} ${b.n} is yours. It earns about ${money(rate(b))} a day — stop by to collect.`);
+    story.emit('buy-biz');
+  }
+  function renovate(k) {
+    const b = BIZ.find(x => x.k === k), o = L.biz[k]; if (!o || o.lv >= 3) return;
+    const cost = Math.round(b.price * 0.5 * (o.lv + 1) / 100) * 100; if (L.money < cost) { toast(`Renovating costs ${money(cost)}`); return; }
+    life.pay(cost, `Renovation — ${b.n}`); o.lv++; life.touch(); life.save(); toast(`${b.n} renovated — now earns ${money(rate(b))} a day`); flashTag('RENOVATED');
+  }
+  function collect(k, remote) {
+    const b = BIZ.find(x => x.k === k), o = L.biz[k]; if (!o || o.safe < 1) return;
+    const amt = Math.round(o.safe * (remote ? 0.85 : 1)); o.safe = 0; life.earn(amt, `${remote ? 'Manager deposit' : 'Cash pickup'} — ${b.n}`);
+    flashTag(`+${money(amt)}`); life.touch(); life.save(); story.emit('collect');
+  }
+  // earnings accrue on the game clock
+  let last = null;
+  function tick() {
+    if (last === null) last = L.hours;
+    const dh = L.hours - last; if (dh <= 0) return; last = L.hours;
+    for (const b of owned()) { const o = L.biz[b.k]; o.safe = Math.min(rate(b) * 5, o.safe + rate(b) * dh / 24); }
+  }
+  function action() {
+    if (Math.hypot(S.vx, S.vz) > 3) return null;
+    for (const b of owned()) if (Math.hypot(b.x - S.x, b.z - S.z) < 60) { const o = L.biz[b.k]; return o.safe >= 1 ? { label: `💰 Collect ${money(o.safe)} · ${b.n}`, fn: () => collect(b.k) } : { label: `${b.ic} ${b.n} · safe empty`, fn: () => phone.open('biz') }; }
+    return null;
+  }
+  return { buy, renovate, collect, tick, action, owned, rate, BIZ };
+})();
+window.__biz = biz;
 // a car's handling with its upgrades and damage
 let _statsKey = '', _stats = null;
 function carStats() {
@@ -7397,7 +7476,7 @@ function frame(now) {
     updateNav(dt, info.vf);
     chal.update(dt);
     peds.update(dt);
-    if (LIFE_ON()) { life.tick(dt / 60 * jobs.clockRate()); life.burn(); jobs.update(dt); hustle.update(dt); combat.update(dt); story.update(dt); garage.update(dt); police.update(dt, info); if ((mmFrame & 7) === 0) { hustle.settleBets(); life.scan(); life.hud(); jobs.hud(); jobs.tick(); } }
+    if (LIFE_ON()) { life.tick(dt / 60 * jobs.clockRate()); life.burn(); jobs.update(dt); hustle.update(dt); combat.update(dt); story.update(dt); garage.update(dt); biz.tick(); police.update(dt, info); if ((mmFrame & 7) === 0) { hustle.settleBets(); life.scan(); life.hud(); jobs.hud(); jobs.tick(); } }
     updatePoiLabels(dt);
     if (++mmFrame % 3 === 0) drawMinimap();
   }
