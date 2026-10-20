@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#14181d">
+<title>Twin Cities Drive</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Abril+Fatface&family=Anton&family=Archivo+Black&family=Bebas+Neue&family=Lobster&family=Montserrat:wght@800&family=Oswald:wght@600&family=Pacifico&family=Playfair+Display:wght@700&family=Righteous&family=Roboto+Slab:wght@700&family=Satisfy&display=swap" rel="stylesheet">
+
+<style>
+  :root { --ink:#f4f1ea; --panel:rgba(18,22,27,.82); --accent:#f2a33a; --line:rgba(255,255,255,.12); }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; overflow:hidden; background:#14181d; color:var(--ink); font-family: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", sans-serif; user-select:none; -webkit-user-select:none; touch-action:none; }
+  canvas#c { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  button { font:inherit; color:inherit; cursor:pointer; }
+
+  /* HUD */
+  #hud { position:fixed; inset:0; pointer-events:none; opacity:0; transition:opacity .3s; }
+  #hud.on { opacity:1; }
+  .street { position:absolute; left:max(14px, env(safe-area-inset-left)); top:max(12px, env(safe-area-inset-top)); max-width:calc(100% - 210px); }
+  .street .name { display:flex; align-items:center; gap:8px; font-weight:800; font-size:clamp(18px, 4.6vw, 28px); letter-spacing:-.01em; text-shadow:0 2px 10px rgba(0,0,0,.55); line-height:1.1; }
+  .street .sub { margin-top:4px; font-size:13px; font-weight:600; opacity:.85; text-shadow:0 1px 6px rgba(0,0,0,.6); }
+  #ref { font-size:12px; font-weight:800; background:#1f5fbf; color:#fff; border:2px solid #fff; border-radius:6px; padding:1px 6px; text-shadow:none; white-space:nowrap; }
+  #limit { position:absolute; left:max(14px, env(safe-area-inset-left)); top:calc(max(12px, env(safe-area-inset-top)) + 70px); width:44px; background:#fff; color:#111; border:2px solid #111; border-radius:6px; text-align:center; padding:3px 0 2px; box-shadow:0 2px 8px rgba(0,0,0,.35); }
+  #limit small { display:block; font-size:7px; font-weight:800; line-height:1.05; letter-spacing:.02em; }
+  #limit b { display:block; font-size:21px; line-height:1; font-weight:900; }
+  #limit.over { animation: flash .6s infinite alternate; }
+  @keyframes flash { to { background:#ffd9d4; } }
+  #minimap { position:absolute; right:max(12px, env(safe-area-inset-right)); top:max(12px, env(safe-area-inset-top)); width:170px; height:170px; border-radius:50%; border:3px solid rgba(255,255,255,.9); box-shadow:0 4px 18px rgba(0,0,0,.4); }
+  .speedo { position:absolute; left:50%; transform:translateX(-50%); bottom:max(18px, env(safe-area-inset-bottom)); text-align:center; text-shadow:0 2px 12px rgba(0,0,0,.6); }
+  .speedo b { display:block; font-size:44px; font-weight:900; line-height:1; font-variant-numeric:tabular-nums; }
+  .speedo span { font-size:11px; font-weight:800; letter-spacing:.18em; opacity:.8; }
+  .tools { position:absolute; right:max(12px, env(safe-area-inset-right)); top:calc(max(12px, env(safe-area-inset-top)) + 182px); display:flex; flex-direction:column; gap:8px; pointer-events:auto; }
+  .tools button { width:44px; height:44px; border-radius:12px; border:1px solid var(--line); background:var(--panel); backdrop-filter:blur(8px); display:grid; place-items:center; }
+  .tools svg { width:22px; height:22px; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+  #loading { position:absolute; left:50%; top:max(14px, env(safe-area-inset-top)); transform:translate(-50%, -8px); background:var(--panel); border:1px solid var(--line); padding:6px 12px; border-radius:999px; font-size:12px; font-weight:700; opacity:0; transition:.25s; white-space:nowrap; }
+  #loading.on { opacity:1; transform:translate(-50%,0); }
+  #toast { position:fixed; left:50%; top:38%; transform:translate(-50%,-50%) scale(.96); background:var(--panel); border:1px solid var(--line); padding:9px 16px; border-radius:12px; font-weight:700; font-size:14px; opacity:0; transition:.2s; pointer-events:none; }
+  #toast.on { opacity:1; transform:translate(-50%,-50%) scale(1); }
+  #firstLoad { position:fixed; left:50%; top:60%; transform:translateX(-50%); width:min(86vw, 360px); text-align:center; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px 16px; font-size:13px; line-height:1.45; display:none; }
+  #firstLoad.on { display:block; }
+  #firstLoad b { display:block; font-size:15px; margin-bottom:4px; }
+
+  /* touch controls */
+  .pad { display:none; position:fixed; bottom:max(16px, env(safe-area-inset-bottom)); gap:12px; pointer-events:auto; }
+  body.touch .pad { display:flex; }
+  .pad.left { left:max(14px, env(safe-area-inset-left)); }
+  .pad.right { right:max(14px, env(safe-area-inset-right)); align-items:flex-end; }
+  .pad button { border:1px solid rgba(255,255,255,.22); background:rgba(18,22,27,.55); backdrop-filter:blur(6px); border-radius:18px; display:grid; place-items:center; touch-action:none; }
+  .pad button.down { background:rgba(242,163,58,.55); border-color:var(--accent); }
+  .pad svg { width:30px; height:30px; fill:currentColor; }
+  .steer { width:78px; height:78px; }
+  .gas { width:78px; height:116px; }
+  .brk { width:70px; height:78px; font-weight:800; font-size:12px; }
+  .hb { width:58px; height:58px; font-size:10px; font-weight:800; }
+  .pad .col { display:flex; flex-direction:column; gap:10px; align-items:center; }
+  .pad button[data-k="boost"] { background:linear-gradient(to top, rgba(64,170,255,.55) var(--n,100%), rgba(18,22,27,.55) var(--n,100%)); }
+
+  /* game feel */
+  #speedlines { position:fixed; inset:0; width:100%; height:100%; pointer-events:none; }
+  #nitroBox { position:absolute; left:50%; transform:translateX(-50%); bottom:calc(max(18px, env(safe-area-inset-bottom)) + 66px); width:150px; height:7px; border-radius:99px; background:rgba(0,0,0,.45); border:1px solid rgba(255,255,255,.25); overflow:hidden; }
+  #nitroFill { display:block; height:100%; width:100%; background:linear-gradient(90deg, #2f8bff, #7fe1ff); border-radius:99px; }
+  #nitroBox.on { box-shadow:0 0 14px rgba(110,200,255,.9); }
+  #driftTag { position:absolute; left:50%; transform:translateX(-50%); bottom:calc(max(18px, env(safe-area-inset-bottom)) + 80px); font-weight:900; font-size:14px; letter-spacing:.12em; opacity:0; transition:opacity .15s; text-shadow:0 2px 8px rgba(0,0,0,.6); }
+  #driftTag.on { opacity:1; } #driftTag.l1 { color:#7fd0ff; } #driftTag.l2 { color:#ffb347; }
+  #fxTag { position:absolute; left:50%; top:30%; transform:translate(-50%,-50%) scale(.8); font-size:clamp(26px, 7vw, 44px); font-weight:900; font-style:italic; letter-spacing:.02em; color:#fff; text-shadow:0 0 18px rgba(80,170,255,.9), 0 3px 10px rgba(0,0,0,.5); opacity:0; transition:.18s; }
+  #fxTag.on { opacity:1; transform:translate(-50%,-50%) scale(1); }
+  body.touch #nitroBox { bottom:calc(max(16px, env(safe-area-inset-bottom)) + 56px); width:120px; }
+  body.touch #driftTag { bottom:calc(max(16px, env(safe-area-inset-bottom)) + 70px); }
+  body.touch .speedo { bottom:calc(max(16px, env(safe-area-inset-bottom)) + 4px); }
+  body.touch .speedo b { font-size:36px; }
+  @media (max-width: 520px) { #minimap { width:128px; height:128px; } .tools { top:calc(max(12px, env(safe-area-inset-top)) + 140px); } .street { max-width:calc(100% - 160px); } }
+
+  /* menu */
+  #menu { position:fixed; inset:0; display:none; align-items:center; justify-content:center; background:radial-gradient(ellipse at 50% 30%, rgba(20,24,29,.35), rgba(12,14,17,.86)); padding:20px; overflow:auto; }
+  #menu.on { display:flex; }
+  .card { width:min(440px, 100%); background:rgba(20,24,29,.92); border:1px solid var(--line); border-radius:22px; padding:24px 22px 20px; box-shadow:0 24px 60px rgba(0,0,0,.5); margin:auto; }
+  .card h1 { margin:0; font-size:30px; font-weight:900; letter-spacing:-.02em; }
+  .card h1 em { font-style:normal; color:var(--accent); }
+  .card p.lede { margin:6px 0 18px; font-size:14px; line-height:1.45; opacity:.78; }
+  label.f { display:block; font-size:12px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; opacity:.7; margin:14px 0 6px; }
+  select { width:100%; font:inherit; font-size:16px; padding:11px 12px; border-radius:12px; border:1px solid var(--line); background:#0f1216; color:var(--ink); }
+  #swatches { display:flex; gap:9px; flex-wrap:wrap; }
+  #swatches button { width:34px; height:34px; border-radius:50%; border:2px solid rgba(255,255,255,.25); }
+  #swatches button.sel { border-color:#fff; box-shadow:0 0 0 3px rgba(242,163,58,.7); }
+  .opts { display:grid; grid-template-columns:1fr 1fr; gap:8px 14px; font-size:14px; }
+  .opts label { display:flex; align-items:center; gap:8px; }
+  .opts select { padding:7px 8px; font-size:14px; }
+  #startBtn { width:100%; margin-top:20px; padding:15px; border:0; border-radius:14px; background:var(--accent); color:#1b1206; font-size:18px; font-weight:900; }
+  .keys { margin-top:14px; font-size:12px; line-height:1.6; opacity:.65; }
+  .keys kbd { font:inherit; font-weight:800; background:rgba(255,255,255,.1); border-radius:5px; padding:0 5px; }
+  body.touch .keys .kb { display:none; } body:not(.touch) .keys .tc, body:not(.touch) .tcOnly { display:none !important; }
+  .credit { margin-top:12px; font-size:11px; opacity:.5; }
+  .credit a { color:inherit; }
+
+  /* big map */
+  #bigmap { position:fixed; inset:0; display:none; background:#ece8df; color:#222; }
+  #bigmap.on { display:block; }
+  #bmCanvas { width:100%; height:100%; display:block; touch-action:none; }
+  .bmbar { position:absolute; top:max(12px, env(safe-area-inset-top)); left:12px; right:12px; display:flex; justify-content:space-between; gap:8px; pointer-events:none; }
+  .bmbar > * { pointer-events:auto; }
+  .bmbtn { background:#fff; border:1px solid #d6d0c4; border-radius:12px; padding:9px 13px; font-weight:800; font-size:14px; box-shadow:0 2px 8px rgba(0,0,0,.12); color:#222; }
+  .bmzoom { position:absolute; right:12px; bottom:calc(max(16px, env(safe-area-inset-bottom)) + 120px); display:flex; flex-direction:column; gap:8px; }
+  .bmzoom .bmbtn { width:44px; height:44px; padding:0; font-size:20px; }
+  #bmStatus { position:absolute; left:50%; top:calc(max(12px, env(safe-area-inset-top)) + 54px); transform:translateX(-50%); font-size:12px; font-weight:700; color:#555; background:rgba(255,255,255,.85); padding:4px 10px; border-radius:999px; }
+  #bmStatus:empty { display:none; }
+  /* GPS */
+  #navBanner { display:none; position:absolute; left:max(12px, env(safe-area-inset-left)); top:max(12px, env(safe-area-inset-top)); width:min(430px, calc(100% - 210px)); background:#1d6b47; color:#fff; border-radius:16px; box-shadow:0 6px 22px rgba(0,0,0,.35); overflow:hidden; pointer-events:auto; }
+  body.navigating #navBanner { display:block; }
+  body.navigating .street { display:none; }
+  body.navigating #limit { top:calc(max(12px, env(safe-area-inset-top)) + 128px); }
+  .nbTop { display:flex; gap:12px; align-items:center; padding:12px 14px 10px; }
+  #navArrow { width:46px; height:46px; flex:none; }
+  #navArrow svg { width:100%; height:100%; color:#fff; }
+  #navDist { font-size:24px; font-weight:900; line-height:1; }
+  #navText { font-size:15px; font-weight:700; line-height:1.2; margin-top:3px; }
+  .nbBot { display:flex; align-items:center; gap:8px; background:rgba(0,0,0,.22); padding:7px 10px 7px 14px; font-size:13px; font-weight:700; }
+  #navEta { flex:1; }
+  .nbBot button { border:0; background:rgba(255,255,255,.16); color:#fff; border-radius:9px; padding:5px 10px; font-weight:800; font-size:13px; }
+  #navPanel { position:fixed; inset:0; display:none; background:rgba(12,14,17,.92); padding:max(14px, env(safe-area-inset-top)) 14px 14px; overflow:auto; touch-action:pan-y; }
+  #navPanel.on { display:block; }
+  #chalPanel { position:fixed; inset:0; display:none; background:rgba(12,14,17,.9); padding:max(14px, env(safe-area-inset-top)) 14px 14px; overflow:auto; pointer-events:auto; }
+  #chalPanel.on { display:block; }
+  .chSec { font-size:12px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; opacity:.6; margin:16px 4px 2px; }
+  .navRes.done { opacity:.55; }
+  #chal { display:none; position:absolute; left:50%; transform:translateX(-50%); top:max(12px, env(safe-area-inset-top)); min-width:220px; background:rgba(16,18,22,.82); backdrop-filter:blur(8px); border:1px solid var(--line); border-radius:14px; padding:8px 10px; pointer-events:auto; }
+  #chal.on { display:block; }
+  #chal.warn #chalMain { color:#ff6b57; }
+  .chTop { display:flex; align-items:center; gap:10px; }
+  #chalArrow { width:30px; height:30px; display:grid; place-items:center; color:#ffb02e; transition:transform .1s linear; }
+  #chalArrow svg { width:26px; height:26px; fill:currentColor; }
+  #chalTitle { font-size:11px; font-weight:800; opacity:.7; text-transform:uppercase; letter-spacing:.05em; }
+  .chRow { display:flex; align-items:baseline; gap:8px; }
+  #chalMain { font-size:24px; font-weight:900; font-variant-numeric:tabular-nums; }
+  #chalSub { font-size:12px; opacity:.7; }
+  #chalQuit { border:0; background:rgba(255,255,255,.1); color:inherit; border-radius:8px; width:28px; height:28px; margin-left:auto; }
+  body.navigating #chal { top:calc(max(12px, env(safe-area-inset-top)) + 118px); }
+  @media (max-width: 520px) { #chal { top:calc(max(12px, env(safe-area-inset-top)) + 58px); min-width:0; } body.navigating #chal { top:calc(max(12px, env(safe-area-inset-top)) + 128px); } }
+  .np { max-width:520px; margin:0 auto; }
+  .npHead { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+  .npHead b { font-size:20px; font-weight:900; }
+  .npHead button { border:0; background:rgba(255,255,255,.1); border-radius:10px; padding:8px 12px; font-weight:800; }
+  .npSearch { display:flex; gap:8px; }
+  #navInput { flex:1; min-width:0; font:inherit; font-size:16px; padding:12px 13px; border-radius:12px; border:1px solid var(--line); background:#0f1216; color:var(--ink); user-select:text; -webkit-user-select:text; }
+  #navGo { border:0; border-radius:12px; padding:0 16px; background:var(--accent); color:#1b1206; font-weight:900; }
+  .cats { display:flex; gap:7px; flex-wrap:wrap; margin:12px 0 6px; }
+  .cats button { border:1px solid var(--line); background:rgba(255,255,255,.06); border-radius:999px; padding:7px 11px; font-size:13px; font-weight:700; }
+  .navRes { display:flex; gap:12px; align-items:center; width:100%; text-align:left; border:0; border-bottom:1px solid var(--line); background:none; padding:12px 4px; }
+  .navRes .ic { font-size:22px; width:30px; text-align:center; }
+  .navRes .tx { display:flex; flex-direction:column; min-width:0; }
+  .navRes b { font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .navRes small { font-size:12px; opacity:.65; margin-top:2px; }
+  .navMsg { padding:14px 4px; font-size:13px; opacity:.7; }
+  .npHint { font-size:12px; opacity:.55; margin-top:14px; line-height:1.5; }
+  #bmActions { position:absolute; left:50%; transform:translateX(-50%); bottom:max(16px, env(safe-area-inset-bottom)); display:flex; flex-direction:column; align-items:center; gap:8px; width:min(92vw, 380px); }
+  #bmLabel { background:#fff; color:#222; font-weight:800; font-size:14px; padding:7px 12px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,.15); max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bmRow { display:flex; gap:8px; width:100%; }
+  .bmRow button { flex:1; border:0; border-radius:14px; padding:13px 10px; font-weight:800; font-size:15px; color:#fff; box-shadow:0 6px 18px rgba(0,0,0,.2); }
+  #bmNav { background:#1d6b47; } #bmGo { background:#1f6feb; }
+  .carPick { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .carPick button { border:1px solid var(--line); background:#0f1216; border-radius:12px; padding:10px; text-align:left; }
+  .carPick button b { display:block; font-size:15px; }
+  .carPick button small { font-size:12px; opacity:.6; }
+  .carPick button.sel { border-color:var(--accent); box-shadow:0 0 0 2px rgba(242,163,58,.5); }
+  @media (max-width: 520px) { #navBanner { width:calc(100% - 168px); } #navDist { font-size:20px; } #navText { font-size:13px; } #navArrow { width:38px; height:38px; } .nbBot { font-size:11px; } }
+  .bmhint { font-size:12px; color:#555; font-weight:600; align-self:center; background:rgba(255,255,255,.8); padding:5px 10px; border-radius:999px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud">
+  <div class="street">
+    <div class="name"><span id="ref" style="display:none"></span><span id="street"></span></div>
+    <div class="sub" id="sub"></div>
+  </div>
+  <div id="navBanner">
+    <div class="nbTop"><div id="navArrow"></div><div><div id="navDist"></div><div id="navText"></div></div></div>
+    <div class="nbBot"><span id="navEta"></span><button id="navMute" aria-label="Mute voice">🔊</button><button id="navEnd">End</button></div>
+  </div>
+  <div id="limit" style="display:none"><small>SPEED<br>LIMIT</small><b id="limitNum"></b></div>
+  <canvas id="minimap" width="340" height="340"></canvas>
+  <div class="tools">
+    <button id="btnNav" aria-label="Navigate"><svg viewBox="0 0 24 24"><path d="M3 11 21 3l-8 18-2-8z"/></svg></button>
+    <button id="btnChal" aria-label="Challenges"><svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v4M8 21h8M9 18h6"/></svg></button>
+    <button id="btnMap" aria-label="Map"><svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg></button>
+    <button id="btnCam" aria-label="Camera"><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg></button>
+    <button id="btnReset" aria-label="Back to road"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>
+    <button id="btnMenu" aria-label="Menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  </div>
+  <div id="chal"><div class="chTop"><i id="chalArrow"><svg viewBox="0 0 24 24"><path d="M12 3 5 20l7-4 7 4z"/></svg></i><div><div id="chalTitle"></div><div class="chRow"><b id="chalMain"></b><span id="chalSub"></span></div></div><button id="chalQuit" aria-label="Quit challenge">✕</button></div></div>
+  <div id="loading"></div>
+  <div class="speedo"><b id="speed">0</b><span>MPH</span></div>
+  <div id="nitroBox"><i id="nitroFill"></i></div>
+  <div id="driftTag"></div>
+  <div id="fxTag"></div>
+
+  <div class="pad left">
+    <button class="steer" data-k="left" aria-label="Steer left"><svg viewBox="0 0 24 24"><path d="M15 4 7 12l8 8z"/></svg></button>
+    <button class="steer" data-k="right" aria-label="Steer right"><svg viewBox="0 0 24 24"><path d="m9 4 8 8-8 8z"/></svg></button>
+  </div>
+  <div class="pad right">
+    <div class="col">
+      <button class="hb" data-k="brake">DRIFT</button>
+      <button class="brk" data-k="down">BRAKE<br>REV</button>
+    </div>
+    <div class="col">
+      <button class="hb" data-k="boost">NITRO</button>
+      <button class="gas" data-k="up" aria-label="Gas"><svg viewBox="0 0 24 24"><path d="M12 4 4 14h5v6h6v-6h5z"/></svg></button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<div id="firstLoad"><b>Building the streets…</b>The first visit to a part of the metro pulls real map data, which can take up to a minute. After that it loads instantly.</div>
+
+<div id="navPanel">
+  <div class="np">
+    <div class="npHead"><b>Where to?</b><button id="navClose">Close</button></div>
+    <div class="npSearch"><input id="navInput" type="search" placeholder="Address or place, e.g. 7000 France Ave Edina" autocomplete="off" enterkeyhint="search"><button id="navGo">Go</button></div>
+    <div class="cats">
+      <button data-cat="2">⛽ Gas</button><button data-cat="0">🍔 Food</button><button data-cat="1">☕ Coffee</button><button data-cat="4">🛒 Grocery</button><button data-cat="3">🛍️ Shops</button><button data-cat="8">🌳 Parks</button><button data-cat="7">🎟️ Fun</button>
+    </div>
+    <div id="navResults"></div>
+    <div class="npHint">You can also open the map, tap any spot or place, then choose “Navigate”.</div>
+  </div>
+</div>
+
+<div id="chalPanel">
+  <div class="np">
+    <div class="npHead"><b>Challenges</b><button id="chalClose">Close</button></div>
+    <div id="chalList"></div>
+    <div class="npHint">Landmarks count as found when you drive within about 250 ft of them — you can find them anytime, not just from this list.</div>
+  </div>
+</div>
+
+<div id="menu" class="on">
+  <div class="card">
+    <h1>Twin Cities <em>Drive</em></h1>
+    <p class="lede">Every street from Maple Grove and Plymouth to Woodbury, Brooklyn Park to Burnsville — real names, one-ways and speed limits from OpenStreetMap.</p>
+    <label class="f" for="spawn">Start in</label>
+    <select id="spawn"></select>
+    <label class="f">Car</label>
+    <div class="carPick">
+      <button data-car="sport"><b>Sports car</b><small>120 mph · 150 boosted</small></button>
+      <button data-car="sedan"><b>Sedan</b><small>95 mph · easy handling</small></button>
+    </div>
+    <label class="f">Car color</label>
+    <div id="swatches"></div>
+    <label class="f">Options</label>
+    <div class="opts">
+      <label>View <select id="optRadius"><option value="1">Normal</option><option value="2">Far (slower)</option></select></label>
+      <span></span>
+      <label><input type="checkbox" id="optBld"> Buildings</label>
+      <label><input type="checkbox" id="optTrees"> Trees</label>
+      <label><input type="checkbox" id="optShadows"> Shadows</label>
+      <label>Traffic <select id="optTraffic"><option value="0">Off</option><option value="1">Light</option><option value="2">Normal</option><option value="3">Heavy</option></select></label>
+      <label>Time <select id="optTime"><option value="cycle">Day/night cycle</option><option value="morning">Morning</option><option value="midday">Midday</option><option value="afternoon">Afternoon</option><option value="sunset">Sunset</option><option value="night">Night</option></select></label>
+      <label>Weather <select id="optWeather"><option value="clear">Clear</option><option value="cloudy">Cloudy</option><option value="rain">Rain</option><option value="snow">Snow</option><option value="changing">Changing</option></select></label>
+      <label><input type="checkbox" id="optSound"> Sound</label>
+      <label class="tcOnly"><input type="checkbox" id="optAuto"> Auto-gas</label>
+      <label style="grid-column:1 / -1"><input type="checkbox" id="optIssues"> Show road problems the traffic finds (on the map)</label>
+    </div>
+    <button id="startBtn">Drive</button>
+    <div class="keys">
+      <span class="kb"><kbd>W A S D</kbd> / arrows drive · <kbd>Space</kbd> while turning to drift (hold the turn, let go to straighten — long drifts give a turbo) · <kbd>Shift</kbd> nitro · <kbd>C</kbd> camera · <kbd>T</kbd> +1 hour · <kbd>J</kbd> challenges · <kbd>M</kbd> map · <kbd>G</kbd> GPS · <kbd>R</kbd> back to road</span>
+      <span class="tc">Left thumb steers, right thumb gas / brake. Tap DRIFT while turning to slide, hold the turn, then let go for a turbo. Drifting refills NITRO. The arrow button opens GPS; the map button lets you jump anywhere.</span>
+    </div>
+    <div class="credit">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · Routing by OSRM · Search by Nominatim</div>
+  </div>
+</div>
+
+<div id="bigmap">
+  <canvas id="bmCanvas"></canvas>
+  <div class="bmbar">
+    <button class="bmbtn" id="bmClose">✕ Back to driving</button>
+    <span class="bmhint">Tap a spot or place</span>
+  </div>
+  <div id="bmStatus"></div>
+  <div class="bmzoom">
+    <button class="bmbtn" id="bmMe" aria-label="Center on car">◎</button>
+    <button class="bmbtn" id="bmZin">+</button>
+    <button class="bmbtn" id="bmZout">−</button>
+  </div>
+  <div id="bmActions" style="display:none">
+    <div id="bmLabel"></div>
+    <div class="bmRow"><button id="bmNav">Navigate</button><button id="bmGo">Teleport</button></div>
+  </div>
+</div>
+
+<script>window.TCD_STATIC = true;</script>
+<script type="module" src="game.js?v=36"></script>
+</body>
+</html>

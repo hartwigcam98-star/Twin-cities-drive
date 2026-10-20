@@ -1,0 +1,32 @@
+name: Bake map tiles
+# Fills data/ with street, building, land-use and terrain tiles for the whole map, a batch at a time.
+on:
+  workflow_dispatch:
+    inputs:
+      minutes: { description: 'Minutes to spend baking', default: '45' }
+  schedule:
+    - cron: '17 */3 * * *' # every 3 hours until the map is complete (runs are quick no-ops after that)
+permissions:
+  contents: write
+concurrency: { group: bake, cancel-in-progress: false }
+jobs:
+  bake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Bake tiles
+        run: node tools/bake.mjs
+        env:
+          BAKE_MINUTES: ${{ github.event.inputs.minutes || '45' }}
+      - name: Commit new tiles
+        run: |
+          git config user.name "tile-baker"
+          git config user.email "actions@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then echo "nothing new"; exit 0; fi
+          git commit -m "Bake map tiles ($(git diff --cached --name-only | wc -l) files)"
+          for i in 1 2 3; do git pull --rebase -q && git push && exit 0; sleep 5; done
+          exit 1
