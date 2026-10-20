@@ -368,6 +368,13 @@
   #btnPhone.msg::after { content:'💬'; position:absolute; top:-7px; right:-7px; font-size:13px; animation:blink 1.2s infinite; }
   .chat { display:flex; flex-direction:column; gap:8px; margin-top:6px; } .bub { align-self:flex-start; max-width:88%; background:#2a3038; border-radius:14px 14px 14px 4px; padding:8px 11px; font-size:13.5px; line-height:1.35; }
   .bub small { display:block; font-size:10.5px; font-weight:900; opacity:.6; margin-bottom:2px; }
+  #dmgBox { display:none; position:absolute; left:50%; transform:translateX(-50%); bottom:calc(max(18px, env(safe-area-inset-bottom)) + 80px); width:110px; height:5px; border-radius:99px; background:rgba(0,0,0,.5); border:1px solid rgba(255,255,255,.25); }
+  body.life #dmgBox.on { display:block; } #dmgFill { display:block; height:100%; width:100%; border-radius:99px; background:linear-gradient(90deg, #ff8a3d, #ffd36b); }
+  #dmgBox::before { content:'🔧'; position:absolute; left:-17px; top:-5px; font-size:9px; }
+  body.touch #dmgBox { bottom:calc(max(16px, env(safe-area-inset-bottom)) + 70px); }
+  @media (max-width: 700px) { body.touch #dmgBox { left:calc(max(18px, env(safe-area-inset-left)) + 14px) !important; transform:none; width:82px; bottom:calc(max(16px, env(safe-area-inset-bottom)) + 156px); } }
+  .cond { height:6px; border-radius:99px; background:rgba(255,255,255,.1); overflow:hidden; margin:6px 0 8px; } .cond i { display:block; height:100%; background:linear-gradient(90deg, #ff8a3d, #4fd27a); }
+  .swatch { display:flex; flex-wrap:wrap; gap:7px; margin:6px 0; } .swatch button { width:30px; height:30px; border-radius:50%; border:2px solid rgba(255,255,255,.3); } .swatch button.sel { border-color:#fff; outline:2px solid var(--accent); }
 </style>
 </head>
 <body>
@@ -408,6 +415,7 @@
   <div id="fuelBox"><i id="fuelFill"></i></div>
   <button id="actBtn"></button>
   <div id="hpBox"><i id="hpFill"></i></div>
+  <div id="dmgBox"><i id="dmgFill"></i></div>
   <button id="btnFire" aria-label="Fire">FIRE</button>
   <div id="hustle"><div class="chTop"><i id="huArrow"><svg viewBox="0 0 24 24"><path d="M12 3 5 20l7-4 7 4z"/></svg></i><div style="min-width:0;flex:1"><div id="huTitle"></div><div id="huMain"></div><div id="huSub"></div></div><button id="huQuit">Bail</button></div></div>
   <div id="gig"><div class="chTop"><i id="gigArrow"><svg viewBox="0 0 24 24"><path d="M12 3 5 20l7-4 7 4z"/></svg></i><div style="min-width:0"><div id="gigTitle"></div><div id="gigMain"></div><div id="gigSub"></div></div><button id="gigQuit">Go offline</button></div></div>
@@ -532,12 +540,12 @@
 
 <script>
 // GitHub Pages lets browsers keep this page for up to 10 minutes: check for a newer build and load it right away
-window.TCD_BUILD = 51;
+window.TCD_BUILD = 52;
 fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
   v = parseInt(v); if (v > window.TCD_BUILD && !new URLSearchParams(location.search).has('b' + v)) location.replace(location.pathname + '?b' + v + location.hash);
 }).catch(() => {});
 </script>
 <script>window.TCD_STATIC = true;</script>
-<script type="module" src="game.js?v=51"></script>
+<script type="module" src="game.js?v=52"></script>
 </body>
 </html>

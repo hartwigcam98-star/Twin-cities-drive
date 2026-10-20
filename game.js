@@ -3163,7 +3163,7 @@ function physics(dt) {
   const loaded = ct && ct.state.r === 2;
   const offroad = loaded && !onRoad;
 
-  const C = CARS[vType()] || CARS.sport, gf = wxGrip();
+  const C = carStats(), gf = wxGrip();
   // ── arcade handling (after Asphalt / NFS No Limits / Mario Kart): nitro bar, assisted drifts, mini-turbos ──
   const steerIn = input.right - input.left;
   const wantBoost = input.boost && S.nitro > 0.02;
@@ -3175,7 +3175,7 @@ function physics(dt) {
   const maxF = (boosting ? C.boost : C.top) * (offroad ? 0.45 : 1);
   let throttle = input.up - input.down;
   if (settings.autoGas && isTouch && throttle === 0 && !input.brake) throttle = 1;
-  if (throttle > 0 && life.outOfGas()) throttle = 0; // empty tank
+  if (throttle > 0 && (life.outOfGas() || garage.totaled())) throttle = 0; // empty tank / wrecked
   S.throttle = throttle;
   const spd = Math.hypot(vf, vl);
   // drift: tap DRIFT (Space) while turning at speed; hold the turn to keep it, let go to straighten out
@@ -3294,7 +3294,7 @@ function physics(dt) {
 // texture (asphalt ripple, concrete joints, rumble strips, grass) on damped springs; the wheels stay planted ──
 const roadProfile = s => Math.sin(s * 1.7) + 0.6 * Math.sin(s * 3.9 + 1) + 0.4 * Math.sin(s * 0.83 + 2) + 0.3 * Math.sin(s * 7.3 + 4);
 function suspension(dt, vf, surf, offroad, air) {
-  const C = CARS[vType()] || CARS.sport, k = C.body;
+  const C = carStats(), k = C.body;
   const spd = Math.hypot(S.vx, S.vz);
   const aRaw = Math.max(-30, Math.min(30, (vf - S.vfPrev) / dt)); S.vfPrev = vf;
   S.aL += (aRaw - S.aL) * Math.min(1, dt * 10);
@@ -3337,7 +3337,7 @@ function suspension(dt, vf, surf, offroad, air) {
 }
 function addTrauma(a) { S.trauma = Math.min(1, S.trauma + a); }
 function buzz(ms) { try { if (settings.haptics !== false && navigator.vibrate) navigator.vibrate(ms); } catch {} }
-function bump(k = 0.5) { addTrauma(0.3 + k * 0.5); buzz(25 + k * 30); sfx.thud(k); S.bhV -= 0.4 * k; S.brV += (Math.random() - 0.5) * 1.6 * k; }
+function bump(k = 0.5) { if (window.__garage && S.mode !== 'foot') __garage.damage(k * 16); addTrauma(0.3 + k * 0.5); buzz(25 + k * 30); sfx.thud(k); S.bhV -= 0.4 * k; S.brV += (Math.random() - 0.5) * 1.6 * k; }
 
 // ───────────────────────── on foot: your character (Golf Go's motion-captured roster) ─────────────────────────
 // Bodies come from chars/<id>.js (R3CHAR format: Mixamo skeleton, quantised mesh, texture); the animation clips live in
@@ -3577,7 +3577,7 @@ let camInit = false;
 let boostE = 0, camHd = null, fovE = 62;
 const shakeN = (t, s) => Math.sin(t * 13.1 + s) * 0.5 + Math.sin(t * 27.7 + s * 2.3) * 0.3 + Math.sin(t * 7.3 + s * 3.7) * 0.2;
 function updateCamera(dt, vf) {
-  const C = CARS[vType()] || CARS.sport;
+  const C = carStats();
   const spd = Math.hypot(S.vx, S.vz), sp = Math.min(1, spd / C.top);
   boostE += ((S.boosting ? 1 : 0) - boostE) * Math.min(1, dt * 3);
   // chase cams swing toward the direction of travel, so a drift shows the car sideways
@@ -3668,7 +3668,7 @@ const slCtx = slCan.getContext('2d');
 const slSeeds = Array.from({ length: 46 }, () => [Math.random() * Math.PI * 2, Math.random(), Math.random()]);
 const SMOKE = [0.85, 0.85, 0.83], SPARK = [[1, 1, 1], [0.35, 0.75, 1], [1, 0.62, 0.15]];
 function updateFx(dt, info) {
-  const C = CARS[vType()] || CARS.sport;
+  const C = carStats();
   const spd = Math.hypot(S.vx, S.vz), fx = Math.sin(S.h), fz = Math.cos(S.h), lx = Math.cos(S.h), lz = -Math.sin(S.h);
   const slip = Math.abs(info.slide || 0), burnout = S.throttle > 0 && spd < 6 && input.brake;
   const sliding = !paused && S.mode !== 'foot' && S.y < 0.5 + (surfaceAt(S.x, S.z, S.y + 1)?.h || 0) && (S.drift || slip > 3.5 || burnout) && spd > 2;
@@ -5009,7 +5009,7 @@ const life = (() => {
     if (!LIFE_ON() || !started || paused) { if (act) { act = null; btn.classList.remove('on'); } return; }
     const spd = Math.hypot(S.vx, S.vz), c = L.cars[L.active];
     if (inside.on) { const a = inside.action(); if ((a && a.label) !== (act && act.label)) { act = a; btn.textContent = a ? a.label : ''; btn.classList.toggle('on', !!a); } return; }
-    let a = story.action() || jobs.action() || hustle.action();
+    let a = story.action() || jobs.action() || hustle.action() || garage.action();
     if (a) {} else if (L.home && Math.hypot(L.home.x - S.x, L.home.z - S.z) < (L.home.kind === 'house' ? 30 : 50) && spd < 2) a = { label: `🚪 Go inside${L.home.kind === 'house' ? '' : ' · ' + L.home.unit}`, fn: () => inside.enter() };
     else if (S.mode !== 'foot' && spd < 1.5 && c && c.fuel < TANK - 0.5) { const g = nearby('gas', 30); if (g) a = { label: `⛽ Fill up · ${money((TANK - c.fuel) * GAS)}`, fn: fillUp }; }
     if (!a && spd < 3) { const d = nearby('dealer', 70); if (d) a = { label: `🚗 Shop at ${d.name}`, fn: () => phone.open('cars') }; }
@@ -5073,7 +5073,7 @@ const life = (() => {
     if (!atHome()) { if (L.money < 60) { toast('Valet delivery costs $60'); return; } pay(60, 'Valet: car swap'); }
     L.active = i; touch(); setCar(); terrainizeScene(); hud(); toast(`Driving the ${L.cars[i].name}`);
   }
-  function sellValue(c) { const age = Math.max(0, 2026 - c.year); return Math.round((c.paid || 8000) * Math.max(0.25, 0.8 - age * 0.05) / 50) * 50; }
+  function sellValue(c) { const age = Math.max(0, 2026 - c.year); return Math.round(((c.paid || 8000) * Math.max(0.25, 0.8 - age * 0.05) * (1 - (c.dmg || 0) / 180) + (c.spent || 0) * 0.5) / 50) * 50; }
   function sellCar(i) {
     const c = L.cars[i]; if (L.cars.length < 2) { toast("You can't sell your only car"); return; }
     const val = sellValue(c), owe = c.loan ? c.loan.left : 0;
@@ -5221,6 +5221,22 @@ const phone = (() => {
         h += `<div class="pUnits"><button class="pBtn sm" data-act="buy" data-i="${i}">Pay ${money(q.total + fee)}</button><button class="pBtn sm ghost" data-act="fin" data-i="${i}">Finance · ${money(q.down + fee)} down<br>${money(q.weekly)}/week</button></div></div>`;
       });
     } else if (tab === 'garage') {
+      const ac = L.cars[L.active], shop = ctx && ctx.shop;
+      if (ac) {
+        const d = Math.round(ac.dmg || 0), up = ac.up || {};
+        h += `<div class="pCard${shop ? ' ok' : ''}"><b>${shop ? '🔧 ' + esc(shop.name) : '🚗 ' + esc(ac.name)}</b><div class="pSub">${esc(ac.name)} · condition ${100 - d}%${d >= 100 ? ' · TOTALED' : d >= 60 ? ' · smoking' : ''}</div><div class="cond"><i style="width:${100 - d}%"></i></div>`;
+        if (shop) {
+          if (d > 0) h += `<button class="pBtn sm" data-act="repair">Repair · ${money(garage.repairCost(ac))}</button>`;
+          h += `<div class="pHead">Paint · $350</div><div class="swatch">${PAINTS.map(c => `<button data-act="paint" data-c="${c}" style="background:${c}"${c === ac.color ? ' class="sel"' : ''}></button>`).join('')}</div>`;
+          h += '<div class="pHead">Performance</div>';
+          UPGRADES.forEach(U => { const lv = up[U.k] || 0, max = U.price.length; h += `<div class="pRow">${U.ic} ${U.n} <small>${'●'.repeat(lv)}${'○'.repeat(max - lv)}</small><span>${lv < max ? `<button class="pBtn sm mini" data-act="upg" data-k="${U.k}">Stage ${lv + 1} · ${money(U.price[lv])}</button>` : 'maxed'}</span></div><div class="pSub" style="margin:-2px 0 4px">${U.desc}</div>`; });
+        } else {
+          h += `<div class="pSub">Repairs, paint and upgrades: drive to an auto repair shop on the map (Midas, Firestone, collision centers…) and stop there.</div>`;
+          if (d >= 100) h += `<button class="pBtn sm" data-act="tow">🚛 Call a tow to the nearest shop · $150</button>`;
+          if (Object.keys(up).length) h += `<div class="pSub">Upgrades: ${UPGRADES.filter(U => up[U.k]).map(U => `${U.ic} ${U.n} ${up[U.k]}`).join(' · ')}</div>`;
+        }
+        h += '</div><div class="pHead">Your cars</div>';
+      }
       L.cars.forEach((c, i) => {
         h += `<div class="pCard${i === L.active ? ' ok' : ''}"><b>${esc(c.name)}</b><span class="pR">${esc(c.plate)}</span><div class="pSub">${CARS[c.type] ? CARS[c.type].label : ''} · ⛽ ${Math.round(c.fuel / TANK * 100)}%${c.loan && c.loan.left > 0 ? ` · ${money(c.loan.left)} left on loan (${money(c.loan.weekly)}/wk)` : ' · paid off'} · worth ${money(life.sellValue(c))}</div>`;
         h += `<div class="pUnits">${i === L.active ? '<span class="pSub">Driving this one</span>' : `<button class="pBtn sm" data-act="drive" data-i="${i}">Drive this${life.atHome() ? '' : ' · $60 valet'}</button>`}<button class="pBtn sm ghost" data-act="sell" data-i="${i}">Sell</button></div></div>`;
@@ -5247,6 +5263,10 @@ const phone = (() => {
     else if (a === 'navwork') { close(); startNav(L.job.x, L.job.z, L.job.where); }
     else if (a === 'spend') { jobs.spend(b.dataset.k); render(); }
     else if (a === 'pkg') { close(); hustle.startRun(); }
+    else if (a === 'repair') { garage.repair(); render(); }
+    else if (a === 'paint') { garage.repaint(b.dataset.c); render(); }
+    else if (a === 'upg') { garage.upgrade(b.dataset.k); render(); }
+    else if (a === 'tow') { garage.tow(); }
     else if (a === 'storyreset') { e.preventDefault(); if (confirm('Restart the story from the beginning?')) story.reset(); }
     else if (a === 'gun') { combat.buy(b.dataset.k); render(); }
     else if (a === 'ammo') { combat.buy(b.dataset.k, true); render(); }
@@ -6974,6 +6994,92 @@ const story = (() => {
   return { emit, update, action, read, st: () => st, cur, STORY, reset };
 })();
 window.__story = story;
+// ───────────────────────── car damage, repair shops, paint and performance upgrades ─────────────────────────
+// Crashes wear the car down: it gets grimy, then slower, then smokes, and at 100% it's totaled until it's towed and
+// fixed. Auto repair shops on the map (Midas, Firestone, collision centers…) fix it, repaint it and sell upgrades.
+const UPGRADES = [
+  { k: 'eng', n: 'Engine tune', ic: '⚙️', desc: '+6% top speed, +12% acceleration per stage', price: [1500, 3200, 6500] },
+  { k: 'tire', n: 'Tires & suspension', ic: '🛞', desc: '+6% grip and cornering per stage', price: [800, 1700, 3400] },
+  { k: 'nitro', n: 'Nitro kit', ic: '🔥', desc: '+8% nitro speed, +12% nitro kick per stage', price: [1200, 2600] },
+];
+const SHOP_RE = /\b(auto|repair|collision|body ?shop|tire|tires|midas|meineke|firestone|goodyear|jiffy|valvoline|pep boys|mechanic|automotive|transmission|brake)\b/i;
+const PAINTS = ['#d6332a', '#1f5fbf', '#f2f2ee', '#1d1f22', '#e8b81e', '#2e8b57', '#8a8f96', '#ef6c1a', '#6b2fa3', '#0f8b8d', '#c9ccd1', '#7a1f1f'];
+const garage = (() => {
+  const L = LIFE;
+  const own = () => LIFE_ON() && !L.jobCar && !L.hot ? L.cars[L.active] : null;
+  let tmp = 0, lastVeh = '';
+  const dmg = () => { const c = own(); return c ? (c.dmg || 0) : LIFE_ON() ? tmp : 0; };
+  function setDmg(v) { const c = own(); v = Math.max(0, Math.min(100, v)); if (c) { c.dmg = v; life.touch(); } else tmp = v; }
+  function damage(n) {
+    if (!LIFE_ON() || S.mode === 'foot' || inside.on) return;
+    const was = dmg(); setDmg(was + n);
+    const d = dmg();
+    if (was < 100 && d >= 100) { flashTag('TOTALED'); toast(own() ? 'Your car is totaled — call a tow to a repair shop (📱 Garage)' : 'That one’s wrecked — hop out and find another ride'); }
+    else if (was < 70 && d >= 70) toast('Your car is smoking — get it to a repair shop');
+  }
+  const totaled = () => LIFE_ON() && S.mode !== 'foot' && dmg() >= 100;
+  // nearby repair shops (a real business on the map)
+  function nearShop(R) { let best = null, bd = R; for (const t of tiles.values()) for (const p of t.pois || []) { if (p.c !== 3 || !SHOP_RE.test(p.name) || DEALER_RE.test(p.name) && !/collision|body/i.test(p.name)) continue; const d = Math.hypot(p.x - S.x, p.z - S.z); if (d < bd) { bd = d; best = p; } } return best; }
+  function repairCost(c) { const base = CATALOG.find(x => x.type === c.type)?.price || 15000; return Math.round((c.dmg || 0) / 100 * Math.max(600, base * 0.22) / 5) * 5; }
+  function repair() {
+    const c = own(); if (!c || !(c.dmg > 0)) return;
+    const cost = repairCost(c); if (L.money < cost) { toast(`Repairs cost ${money(cost)}`); return; }
+    life.pay(cost, `Repairs — ${c.name}`); c.dmg = 0; life.touch(); life.save(); paint(); toast('Good as new 🔧'); flashTag('REPAIRED');
+  }
+  function repaint(col) {
+    const c = own(); if (!c) return; if (L.money < 350) { toast('A paint job costs $350'); return; }
+    life.pay(350, `Paint job — ${c.name}`); c.color = col; settings.color = col; life.touch(); life.save(); setCar(); terrainizeScene(); toast('Fresh paint 🎨');
+  }
+  function upgrade(k) {
+    const c = own(); if (!c) return; const U = UPGRADES.find(u => u.k === k); c.up = c.up || {}; const lv = c.up[k] || 0;
+    if (lv >= U.price.length) return; const cost = U.price[lv]; if (L.money < cost) { toast(`That’s ${money(cost)}`); return; }
+    life.pay(cost, `${U.n} stage ${lv + 1} — ${c.name}`); c.up[k] = lv + 1; c.spent = (c.spent || 0) + cost; life.touch(); life.save(); flashTag('UPGRADED');
+  }
+  function tow() {
+    if (police.stars()) { toast('No tow truck will come with the cops after you'); return; }
+    if (L.money < 150) { toast('A tow costs $150'); return; }
+    let best = null, bd = 6000; for (const p of jobs.allPois(p => p.c === 3 && SHOP_RE.test(p.name))) { const d = Math.hypot(p.x - S.x, p.z - S.z); if (d < bd) { bd = d; best = p; } }
+    if (!best) { toast('No repair shop nearby on the map — drive toward town'); return; }
+    life.pay(150, 'Tow truck'); phone.close(); teleport(best.x, best.z, `Towed to ${best.name}`);
+  }
+  // looks: grime with damage, smoke when it's bad
+  let shown = -1;
+  function paint() {
+    const d = Math.round(dmg()), key = vType() + vColor() + d; if (key === shown || !car || !car.userData.paint) return; shown = key;
+    car.userData.paint.color.set(vColor()).lerp(_dirt, Math.min(0.55, d * 0.006));
+  }
+  const _dirt = new THREE.Color('#3b3630');
+  function update(dt) {
+    const veh = vType() + (L.jobCar ? 'j' : L.hot ? 'h' : L.active);
+    if (veh !== lastVeh) { lastVeh = veh; tmp = 0; shown = -1; }
+    paint();
+    const d = dmg();
+    if (d >= 60 && S.mode !== 'foot' && !paused) {
+      const fx = Math.sin(S.h), fz = Math.cos(S.h);
+      if (Math.random() < dt * (d >= 100 ? 30 : 12)) emit(S.x + fx * 1.7, S.y + 1.1, S.z + fz * 1.7, (Math.random() - 0.5) * 0.6 - S.vx * 0.3, 1.2 + Math.random(), (Math.random() - 0.5) * 0.6 - S.vz * 0.3, 1.8, 0.6, 3.5, d >= 100 ? 0.75 : 0.45, d >= 100 ? [0.25, 0.25, 0.25] : [0.7, 0.7, 0.7]);
+    }
+    const on = LIFE_ON() && S.mode !== 'foot' && d > 0.5;
+    const b = $('dmgBox'); b.classList.toggle('on', on); if (on) $('dmgFill').style.width = (100 - d).toFixed(0) + '%';
+  }
+  function action() {
+    if (!own() || S.mode === 'foot' || Math.hypot(S.vx, S.vz) > 2) return null;
+    const s = nearShop(45); if (!s) return null;
+    return { label: `🔧 ${s.name.length > 18 ? s.name.slice(0, 17) + "…" : s.name} · garage`, fn: () => phone.open('garage', { shop: s }) };
+  }
+  return { damage, totaled, dmg, repair, repairCost, repaint, upgrade, tow, update, action, nearShop };
+})();
+window.__garage = garage;
+// a car's handling with its upgrades and damage
+let _statsKey = '', _stats = null;
+function carStats() {
+  const base = CARS[vType()] || CARS.sport, c = LIFE_ON() && !LIFE.jobCar && !LIFE.hot ? LIFE.cars[LIFE.active] : null, up = (c && c.up) || {};
+  const d = typeof garage === 'object' ? garage.dmg() : 0, e = up.eng || 0, t = up.tire || 0, n = up.nitro || 0;
+  const key = vType() + e + t + n + Math.round(d / 4);
+  if (key === _statsKey) return _stats;
+  const f = d >= 100 ? 0 : d > 40 ? 1 - (d - 40) / 150 : 1;
+  _stats = { ...base, top: base.top * (1 + 0.06 * e) * (0.6 + 0.4 * f), accel: base.accel * (1 + 0.12 * e) * f, boost: base.boost * (1 + 0.06 * e + 0.08 * n) * (0.6 + 0.4 * f), boostAccel: base.boostAccel * (1 + 0.12 * n) * f, grip: base.grip * (1 + 0.06 * t), latG: base.latG * (1 + 0.05 * t) };
+  _statsKey = key; return _stats;
+}
 const overlayUp = () => shiftGame.isOn() || phone.isOpen() || hustle.overlayOn();
 
 // ───────────────────────── challenges: timed runs, checkpoint rush, landmark hunt ─────────────────────────
@@ -7291,7 +7397,7 @@ function frame(now) {
     updateNav(dt, info.vf);
     chal.update(dt);
     peds.update(dt);
-    if (LIFE_ON()) { life.tick(dt / 60 * jobs.clockRate()); life.burn(); jobs.update(dt); hustle.update(dt); combat.update(dt); story.update(dt); police.update(dt, info); if ((mmFrame & 7) === 0) { hustle.settleBets(); life.scan(); life.hud(); jobs.hud(); jobs.tick(); } }
+    if (LIFE_ON()) { life.tick(dt / 60 * jobs.clockRate()); life.burn(); jobs.update(dt); hustle.update(dt); combat.update(dt); story.update(dt); garage.update(dt); police.update(dt, info); if ((mmFrame & 7) === 0) { hustle.settleBets(); life.scan(); life.hud(); jobs.hud(); jobs.tick(); } }
     updatePoiLabels(dt);
     if (++mmFrame % 3 === 0) drawMinimap();
   }
