@@ -21,6 +21,7 @@ const KX = Math.cos(LAT0 * Math.PI / 180) * 111320, KZ = 110574;
 const proj = (lat, lon) => [(lon - LON0) * KX, -(lat - LAT0) * KZ];
 const unproj = (x, z) => [LAT0 - z / KZ, LON0 + x / KX];
 const tileOf = (x, z) => { const [lat, lon] = unproj(x, z); return [Math.floor((lon - B.W) / TLON), Math.floor((lat - B.S) / TLAT)]; };
+const tileFrac = (x, z) => { const [lat, lon] = unproj(x, z); return [(lon - B.W) / TLON, (lat - B.S) / TLAT]; };
 const [MINX, MAXZ] = proj(B.S, B.W);
 const [MAXX, MINZ] = proj(B.N, B.E);
 
@@ -75,12 +76,14 @@ const nearPlace = (x, z) => { let b = null, bd = 1e18; for (const p of PLACES) {
 // ───────────────────────── settings ─────────────────────────
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const settings = Object.assign({ radius: 1, buildings: true, trees: true, shadows: true, color: '#d6332a', car: 'sport' }, (() => { try { return JSON.parse(localStorage.getItem('tcd-settings') || '{}'); } catch { return {}; } })());
+// graphics: "light" (default on phones) trims roadside clutter, trees and fine detail so the game fits in a phone's memory
+const LOW = (settings.gfx || (isTouch ? 'low' : 'high')) === 'low';
 const saveSettings = () => { try { localStorage.setItem('tcd-settings', JSON.stringify(settings)); } catch {} };
 
 // ───────────────────────── renderer / scene ─────────────────────────
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: !isTouch, powerPreference: 'high-performance', stencil: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, isTouch ? 1.5 : 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, LOW ? 1.25 : isTouch ? 1.5 : 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 const scene = new THREE.Scene();
@@ -560,6 +563,11 @@ function roadSpec(r) {
 }
 
 // ───────────────────────── geometry builders ─────────────────────────
+function freeAfterUpload(g) {
+  const free = function () { this.array = null; };
+  for (const k in g.attributes) g.attributes[k].onUpload(free);
+  if (g.index) g.index.onUpload(free);
+}
 class GeoBuf {
   constructor() { this.p = []; this.uv = []; this.n = []; this.i = []; this.c = []; this.cl = []; }
   get vc() { return this.p.length / 3; }
@@ -572,7 +580,8 @@ class GeoBuf {
     if (withColor) g.setAttribute('color', new THREE.Float32BufferAttribute(this.c, 3));
     if (this.cl.length) g.setAttribute('aCell', new THREE.Float32BufferAttribute(this.cl, 1));
     g.setIndex(this.vc > 65535 ? new THREE.Uint32BufferAttribute(this.i, 1) : new THREE.Uint16BufferAttribute(this.i, 1));
-    g.computeBoundingSphere();
+    g.computeBoundingSphere(); g.computeBoundingBox();
+    freeAfterUpload(g); // the GPU keeps its own copy: don't hold every vertex twice (phones run out of memory)
     const m = new THREE.Mesh(g, mat);
     m.matrixAutoUpdate = false;
     return m;
@@ -1300,8 +1309,10 @@ function wantTiles(x, z) {
     if (settings.buildings && t.state.b === 0 && ready) enqueue(t, 'b');
   }
   // unload far tiles
+  const [fx, fy] = tileFrac(x, z);
   for (const [, t] of tiles) {
-    if (Math.abs(t.tx - cx) > R + 1 || Math.abs(t.ty - cy) > R + 1) unloadTile(t);
+    const far = LOW ? Math.max(Math.abs(t.tx + 0.5 - fx), Math.abs(t.ty + 0.5 - fy)) > R + 1.15 : Math.abs(t.tx - cx) > R + 1 || Math.abs(t.ty - cy) > R + 1;
+    if (far) unloadTile(t);
   }
   queue.sort((a, b) => a.pri(x, z) - b.pri(x, z));
   pump();
@@ -1314,7 +1325,7 @@ function unloadTile(t) {
   t.dead = true;
   traffic.removeTile(t);
   scene.remove(t.group);
-  t.group.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.userData && o.userData.tex) { o.userData.tex.dispose(); o.material.dispose(); } });
+  t.group.traverse(o => { if (o.isInstancedMesh) o.dispose(); if (o.geometry) o.geometry.dispose(); if (o.userData && o.userData.tex) { o.userData.tex.dispose(); o.material.dispose(); } });
   tiles.delete(t.key);
   for (let i = queue.length - 1; i >= 0; i--) if (queue[i].t === t) queue.splice(i, 1);
 }
@@ -2017,6 +2028,18 @@ function drawSign(ctx, slot, text, st) {
 }
 // redraw every live sign atlas once the sign fonts have loaded
 const signAtlases = new Set();
+// sign atlases: half resolution in light graphics; the canvas is emptied once its texture is on the GPU, because phones
+// (iOS especially) cap the memory all canvases may use and crash the page when it runs out
+const ATLAS_S = LOW ? 0.5 : 1;
+function atlasCanvas(w, h) {
+  const can = document.createElement('canvas'); can.width = Math.round(w * ATLAS_S); can.height = Math.round(h * ATLAS_S);
+  const ctx = can.getContext('2d'); ctx.scale(ATLAS_S, ATLAS_S); return [can, ctx];
+}
+function atlasTexture(can) {
+  const tex = new THREE.CanvasTexture(can); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  tex.onUpdate = () => { if (signFontsReady && tex.image && tex.image.width) { tex.image.width = tex.image.height = 1; } }; // keep it until the fonts have redrawn it
+  return tex;
+}
 let signFontsReady = false;
 if (document.fonts && document.fonts.load) {
   Promise.all(Object.values(SF).map(f => document.fonts.load(f(40), 'Ag')).map(p => p.catch(() => null))).then(() => {
@@ -2053,8 +2076,7 @@ function buildSigns(t, d, frameBuf) {
   }
   items.sort((a, b) => a.pri - b.pri);
   if (!items.length) return null;
-  const can = document.createElement('canvas'); can.width = ATLAS_W; can.height = ATLAS_H;
-  const ctx = can.getContext('2d');
+  const [can, ctx] = atlasCanvas(ATLAS_W, ATLAS_H);
   const buf = new GeoBuf(); let slot = 0; const drawn = [];
   const draw = (name, st) => { const s = slot++; drawn.push([s, name, st]); return drawSign(ctx, s, name, st); };
   const used = new Map(); // building → [{edge, a, b, y}]
@@ -2123,7 +2145,7 @@ function buildSigns(t, d, frameBuf) {
     }
   }
   if (!slot) return null;
-  const tex = new THREE.CanvasTexture(can); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const tex = atlasTexture(can);
   const m = buf.mesh(new THREE.MeshBasicMaterial({ map: tex, fog: true, alphaTest: 0.4 }), false);
   m.userData.tex = tex;
   if (!signFontsReady) signAtlases.add({ mesh: m, redraw: () => { for (const [s, name, st] of drawn) drawSign(ctx, s, name, st); tex.needsUpdate = true; } });
@@ -2164,8 +2186,8 @@ function buildStreetSigns(t, frameBuf) {
       }
     }
   }
-  const can = document.createElement('canvas'); can.width = BLADE_ATLAS_W; can.height = BLADE_ATLAS_H;
-  const ctx = can.getContext('2d'), buf = new GeoBuf(), slots = new Map(), drawn = [];
+  const [can, ctx] = atlasCanvas(BLADE_ATLAS_W, BLADE_ATLAS_H);
+  const buf = new GeoBuf(), slots = new Map(), drawn = [];
   const slotFor = name => { let uv = slots.get(name); if (!uv && slots.size < BLADE_MAX) { const s = slots.size; drawn.push([s, name]); uv = drawBlade(ctx, s, name); slots.set(name, uv); } return uv; };
   const done = [];
   for (const e of nodes.values()) {
@@ -2190,7 +2212,7 @@ function buildStreetSigns(t, frameBuf) {
   }
   for (const b of t.sigBlades || []) { const uv = slotFor(shortName(b.name)); if (uv) signQuad(buf, b.x, b.y, b.z, b.nx, b.nz, b.w, b.h, uv); }
   if (!slots.size) return null;
-  const tex = new THREE.CanvasTexture(can); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const tex = atlasTexture(can);
   const m = buf.mesh(new THREE.MeshBasicMaterial({ map: tex, fog: true }), false);
   m.userData.tex = tex;
   if (!signFontsReady) signAtlases.add({ mesh: m, redraw: () => { for (const [s, name] of drawn) drawBlade(ctx, s, name); tex.needsUpdate = true; } });
@@ -2338,7 +2360,7 @@ function buildBuildings(t, d) {
   for (let p = 0; p < 2; p++) for (let k = 0; k < 3; k++) { const m = lit[p][k].mesh(litMats[p][k]); if (m) { t.group.add(m); t.bldMeshes.push(m); } }
   const m1 = houseBuf.mesh(bldMat, true); if (m1) { t.group.add(m1); t.bldMeshes.push(m1); }
   const m2 = faceBuf.mesh(facadeMat, true); if (m2) { t.group.add(m2); t.bldMeshes.push(m2); }
-  const m3 = aoBuf.mesh(aoMat); if (m3) { m3.renderOrder = 2; t.group.add(m3); t.bldMeshes.push(m3); }
+  const m3 = LOW ? null : aoBuf.mesh(aoMat); if (m3) { m3.renderOrder = 2; t.group.add(m3); t.bldMeshes.push(m3); }
   t.group.updateMatrixWorld(true);
   maybeClutter(t);
 }
@@ -2430,8 +2452,8 @@ function drawTSign(c, slot, sg) {
 }
 const tsMats = new Set();
 function trafficSigns(t, solid, deg, along, mine, inBuilding, onOtherRoad) {
-  const can = document.createElement('canvas'); can.width = TS_AW; can.height = TS_AH;
-  const ctx = can.getContext('2d'), buf = new GeoBuf(), slots = new Map(), drawn = [];
+  const [can, ctx] = atlasCanvas(TS_AW, TS_AH);
+  const buf = new GeoBuf(), slots = new Map(), drawn = [];
   const face = sg => { const k = JSON.stringify(sg); let f = slots.get(k); if (!f && slots.size < TS_COLS * TS_ROWS) { const sl = slots.size; drawn.push([sl, sg]); f = drawTSign(ctx, sl, sg); slots.set(k, f); } return f; };
   const BACK = rgbOf('#9aa0a4'), POST = rgbOf('#8a9095');
   const count = [0, 0, 0]; let pass = 0; // 0 freeway / ramps, 1 speed limits, 2 one-way streets
@@ -2525,7 +2547,7 @@ function trafficSigns(t, solid, deg, along, mine, inBuilding, onOtherRoad) {
     }
   }
   if (!slots.size) return null;
-  const tex = new THREE.CanvasTexture(can); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  const tex = atlasTexture(can);
   const m = buf.mesh(new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.5, emissive: '#2a2a2a' }), false);
   m.userData.tex = tex;
   if (!signFontsReady) signAtlases.add({ mesh: m, redraw: () => { for (const [sl, sg] of drawn) drawTSign(ctx, sl, sg); tex.needsUpdate = true; } });
@@ -2629,7 +2651,7 @@ function buildClutter(t) {
     }
   }
   // parked cars: along the curb on city and residential streets, and in parking lots
-  let parked = 0; const MAXP = 2600;
+  let parked = 0; const MAXP = LOW ? 450 : 2600;
   const car = (x, z, dx, dz, collide) => {
     if (parked >= MAXP) return;
     const col = PARKED_PAL[(rnd() * PARKED_PAL.length) | 0], len = 4.3 + rnd() * 0.6, big = rnd() < 0.3;
@@ -2686,14 +2708,14 @@ function buildClutter(t) {
     if (inBuilding(mx, mz)) continue;
     const sx = -oz * 1.6, sz = ox * 1.6, y = 0.04;
     quadN(flat, [ex + sx, y, ez + sz], [ex - sx, y, ez - sz], [ex - sx + ox * L, y, ez - sz + oz * L], [ex + sx + ox * L, y, ez + sz + oz * L], [0, 1, 0], CONC);
-    if (rnd() < 0.6) { // mailbox on a post beside the driveway
+    if (!LOW && rnd() < 0.6) { // mailbox on a post beside the driveway
       const mx2 = ex + ox * 0.9 + sx * 1.6, mz2 = ez + oz * 0.9 + sz * 1.6;
       boxY(solid, mx2, mz2, ox, oz, 0.04, 0.04, 0, 1.0, POLE_WOOD); boxY(solid, mx2, mz2, ox, oz, 0.24, 0.12, 1.0, 1.22, MAILBOX);
     }
   }
   const add = m => { if (m) { t.group.add(m); t.bldMeshes.push(m); } };
   add(trafficSigns(t, solid, deg, along, mine, inBuilding, onOtherRoad));
-  add(solid.mesh(bldMat, true));
+  { const cm = solid.mesh(bldMat, true); if (cm) cm.userData.role = 'clutter'; add(cm); }
   add(flat.mesh(drivewayMat, true));
   if (lamps.length) { // night: a warm pool of light on the ground under each lamp, and a glow around the lamp itself
     const n = lamps.length / 3, pos = [], nor = [], uv = [], idx = [], hp = [];
@@ -2728,7 +2750,7 @@ function plantTrees(t) {
   const [x1, z0] = proj(B.S + (t.ty + 1) * TLAT, B.W + (t.tx + 1) * TLON);
   let seed = t.tx * 7919 + t.ty * 104729 + 1;
   const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-  const spots = [], MAX = 2600;
+  const spots = [], MAX = LOW ? 1100 : 2600;
   const hasLU = t.areas && t.areas.length > 0;
   const clearOfRoads = (x, z, pad) => { const nr = nearestRoadIn(t, x, z, 30); return !(nr && nr.d < nr.road.w / 2 + pad); };
   const inWater = (x, z) => t.water && t.water.some(w => pointInPoly(x, z, w));
@@ -4164,9 +4186,10 @@ function poiSprite(p) {
     ctx.fillText(POI_ICONS[p.c] || '📍', 12, h / 2 + 1);
     ctx.font = font; ctx.fillStyle = '#f4f1ea'; ctx.fillText(name, 56, h / 2 + 1);
     const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+    tex.onUpdate = () => { c.width = c.height = 1; }; // on the GPU now: free the canvas
     mat = new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true });
     mat.userData.aspect = w / h;
-    if (poiTexCache.size > 300) { const [k0, m0] = poiTexCache.entries().next().value; m0.map.dispose(); m0.dispose(); poiTexCache.delete(k0); }
+    if (poiTexCache.size > (LOW ? 120 : 300)) { const [k0, m0] = poiTexCache.entries().next().value; m0.map.dispose(); m0.dispose(); poiTexCache.delete(k0); }
     poiTexCache.set(key, mat);
   }
   const sp = new THREE.Sprite(mat);
@@ -4644,6 +4667,8 @@ $('optSound').checked = settings.sound !== false; $('optAuto').checked = !!setti
 $('optTraffic').value = settings.traffic ?? 2; $('optIssues').checked = !!settings.showIssues;
 $('optTraffic').onchange = e => { settings.traffic = +e.target.value; saveSettings(); };
 $('optTime').value = settings.time ?? 'cycle';
+$('optGfx').value = LOW ? 'low' : 'high';
+$('optGfx').onchange = e => { settings.gfx = e.target.value; saveSettings(); location.reload(); };
 $('optWeather').value = settings.weather || 'clear';
 $('optWeather').onchange = e => { settings.weather = e.target.value; saveSettings(); WX.next = 0; };
 $('optTime').onchange = e => { settings.time = e.target.value; saveSettings(); if (TIME_PRESETS[settings.time] != null) { tod = TIME_PRESETS[settings.time]; applyTime(tod); } };
@@ -4732,6 +4757,14 @@ window.__tr = () => traffic.cars.map(c => [c.road.c, c.lane, c.sig, c.brake ? 1 
 window.__trStep = (n, dt = 1 / 30) => { for (let i = 0; i < n; i++) traffic.update(dt); return window.__tr(); };
 window.__setTime = h => { tod = h; applyTime(h); };
 window.__setWx = (k, snap) => { settings.weather = k; if (snap) { const t = WX_TARGET[k]; WX.kind = k; WX.cloud = t[0]; WX.precip = t[1]; WX.snowing = t[2]; WX.wet.value = t[1] * (1 - t[2]); WX.snow.value = t[2]; } };
+window.__mem = () => ({ geo: renderer.info.memory.geometries, tex: renderer.info.memory.textures, prog: renderer.info.programs.length, heap: Math.round((performance.memory?.usedJSHeapSize || 0) / 1e6), tiles: tiles.size, calls: renderer.info.render.calls, tris: renderer.info.render.triangles, cars: traffic.cars.length, clutter: [...tiles.values()].map(t => t.clutterStats).filter(Boolean) });
+window.__goLL = (lat, lon) => { const [x, z] = proj(lat, lon); teleport(x, z); };
+window.__tris = () => {
+  const names = new Map([[bldMat, 'bld'], [facadeMat, 'facade'], [luMat, 'landuse'], [treeMatTop, 'treeTop'], [treeMatTrunk, 'trunk'], [walkMat, 'walk'], [markMat, 'marks'], [junctionMat, 'junction'], [drivewayMat, 'driveway'], [waterMat, 'water'], [aoMat, 'ao']]);
+  const out = {};
+  scene.traverse(o => { if (!o.isMesh || !o.visible) return; let p = o; while (p) { if (!p.visible) return; p = p.parent; } const g = o.geometry; const tri = (g.index ? g.index.count : g.attributes.position.count) / 3 * (o.isInstancedMesh ? o.count : 1); const m = Array.isArray(o.material) ? o.material[0] : o.material; const n = o.userData.role || names.get(m) || (roadMats && [...roadMats.values()].includes(m) ? 'road' : m.type + (m.map ? '+map' : '')); out[n] = (out[n] || 0) + Math.round(tri); });
+  return Object.fromEntries(Object.entries(out).sort((a, b) => b[1] - a[1]));
+};
 window.__tcdSet = o => { Object.assign(S, o); camInit = false; };
 window.__tcd = () => ({ x: S.x, y: S.y, z: S.z, h: S.h, v: Math.hypot(S.vx, S.vz), pitch: S.pitch, drift: S.drift, charge: S.charge, nitro: S.nitro, burst: S.burst, bp: S.bp, br: S.br, bh: S.bh, yawR: S.yawR, scrub: S.scrub, aL: S.aL, rumble: S.rumble, groll: S.groll, raised: [...tiles.values()].reduce((n, t) => n + (t.raisedB || 0), 0) });
 requestAnimationFrame(frame);
