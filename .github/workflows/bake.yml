@@ -8,7 +8,7 @@ on:
     inputs:
       minutes: { description: 'Minutes to spend baking', default: '50' }
   schedule:
-    - cron: '17 */3 * * *' # every 3 hours until the map is complete (runs are quick no-ops after that)
+    - cron: '17 * * * *' # every hour until the map is complete (runs are quick no-ops after that)
 permissions:
   contents: write
 concurrency: { group: bake, cancel-in-progress: false }

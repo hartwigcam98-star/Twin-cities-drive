@@ -53,9 +53,9 @@ if (KINDS.includes('e')) for (const [x, y] of tiles) {
   try { const r = await timed(elevUrl(x, y)); if (!r.ok) throw new Error('3dep ' + r.status); save('e', name, processElev(x, y, await r.arrayBuffer())); made++; }
   catch (e) { failed++; log.push(`e ${name} ${e.message}`); }
 }
-for (const [x, y] of tiles) {
-  if (timeLeft() < 120e3) break;
-  const name = `${x}_${y}`, need = KINDS.filter(k => k !== 'e' && !done(k, name)); if (!need.length) continue;
+const queue = tiles.filter(([x, y]) => KINDS.some(k => k !== 'e' && !done(k, `${x}_${y}`)));
+async function bakeTile([x, y]) {
+  const name = `${x}_${y}`, need = KINDS.filter(k => k !== 'e' && !done(k, name)); if (!need.length) return;
   let raw = null; // one OSM API download serves all three layers
   for (const kind of need) {
     try {
@@ -69,6 +69,8 @@ for (const [x, y] of tiles) {
     } catch (e) { failed++; log.push(`${kind} ${name} ${e.message}`); console.log(kind, name, 'failed', e.message); }
   }
 }
+// three tiles at a time: each tile is mostly waiting on the network
+await Promise.all([0, 1, 2].map(async () => { while (queue.length && timeLeft() > 120e3) await bakeTile(queue.shift()); }));
 const total = KINDS.reduce((n, k) => n + tiles.filter(([x, y]) => done(k, `${x}_${y}`)).length, 0);
 const summary = `${new Date().toISOString()} baked ${made} files, ${failed} failed; ${total}/${tiles.length * KINDS.length} tiles done`;
 console.log(summary);
