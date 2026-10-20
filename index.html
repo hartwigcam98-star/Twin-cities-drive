@@ -253,6 +253,11 @@
   #wanted.evading b { animation:none; opacity:.55; }
   #wanted span { display:inline-block; margin-top:2px; font-size:12px; font-weight:900; letter-spacing:.08em; background:rgba(12,14,18,.75); border-radius:99px; padding:3px 10px; }
   @keyframes wflash { 0% { text-shadow:0 0 14px #ff2a2a; } 100% { text-shadow:0 0 14px #2a5bff; } }
+  #btnPhone { position:relative; } #btnPhone.badge::after { content:'!'; position:absolute; top:-5px; right:-5px; width:18px; height:18px; border-radius:50%; background:#ff4d3d; color:#fff; font-size:12px; font-weight:900; display:grid; place-items:center; animation:blink 1.2s infinite; }
+  body.inside .speedo, body.inside #nitroBox, body.inside #fuelBox, body.inside #minimap, body.inside .street, body.inside #limit, body.inside #wanted, body.inside #navBanner, body.inside #gig, body.inside #btnMap, body.inside #btnCam, body.inside #btnReset, body.inside #btnNav, body.inside #btnChal { display:none !important; }
+  body.inside .pad .hb[data-k="brake"] { visibility:hidden; }
+  .sched { display:flex; gap:4px; align-items:center; margin:8px 0 4px; } .sched i { width:22px; height:22px; border-radius:6px; display:grid; place-items:center; font-style:normal; font-size:11px; font-weight:900; background:rgba(255,255,255,.07); opacity:.5; }
+  .sched i.on { background:#4fd27a; color:#0d1a12; opacity:1; } .sched i.now { outline:2px solid var(--accent); } .sched span { margin-left:6px; font-size:12px; font-weight:800; }
 </style>
 </head>
 <body>
@@ -400,6 +405,6 @@
 </div>
 
 <script>window.TCD_STATIC = true;</script>
-<script type="module" src="game.js?v=42"></script>
+<script type="module" src="game.js?v=43"></script>
 </body>
 </html>

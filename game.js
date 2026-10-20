@@ -2290,7 +2290,7 @@ function buildBillboards(t, d, frameBuf) {
 
 function buildBuildings(t, d) {
   if (t.bldMeshes) { for (const m of t.bldMeshes) { t.group.remove(m); m.geometry.dispose(); if (m.userData.tex) { m.userData.tex.dispose(); m.material.dispose(); } } t.blds.length = 0; t.bldGrid.clear(); }
-  t.bldMeshes = []; t.cluttered = false; t.apts = [];
+  t.bldMeshes = []; t.cluttered = false; t.apts = []; t.houses = [];
   const houseBuf = new GeoBuf(), faceBuf = new GeoBuf(), aoBuf = new GeoBuf(); faceBuf.facade = true;
   let seed = t.tx * 31 + t.ty * 17;
   const names = d.names || [];
@@ -2319,6 +2319,10 @@ function buildBuildings(t, d) {
       if ((tag === 'apartments' || (tag === 'residential' && top >= 9)) && area > 350 && !minH) { // a rentable apartment building
         let cx = 0, cz = 0; for (let i = 0; i < pts.length; i += 2) { cx += pts[i]; cz += pts[i + 1]; }
         t.apts.push({ name, x: cx * 2 / pts.length, z: cz * 2 / pts.length, h: top, area });
+      }
+      if (kind === 0 && !minH && top < 10 && area > 75 && area < 350 && !name) { // a single-family house
+        let cx = 0, cz = 0; for (let i = 0; i < pts.length; i += 2) { cx += pts[i]; cz += pts[i + 1]; }
+        t.houses.push({ x: cx * 2 / pts.length, z: cz * 2 / pts.length, area });
       }
       const plain = lm ? lm.plain || lm.shape === 'bowl' : PLAIN_TAGS.has(tag) || (area > 8000 && top < 40) || (kind === 2 && area > 3000) || (tag === 'retail' && area > 2500 && top < 16);
       const isHouse = kind === 0 && !minH && top < 10;
@@ -3403,6 +3407,7 @@ async function useCharacter(id) {
 const PARKED = { x: 0, y: 0, z: 0, h: 0, pitch: 0, groll: 0 };
 async function toggleFoot() {
   if (!started || paused) return;
+  if (inside.on) { const a = inside.action(); if (a && a.label.startsWith('🚪')) inside.exit(); else toast('Walk to the front door to go outside'); return; }
   if (S.mode !== 'foot') {
     if (Math.hypot(S.vx, S.vz) > 4) { toast('Slow down to get out'); return; }
     if (ME.busy) return; ME.busy = true;
@@ -4147,6 +4152,7 @@ let pendingSnap = null;
 function teleport(x, z, label) {
   if (window.__noTeleport && window.__noTeleport()) { toast('Not with the cops on your tail — lose them first'); return; }
   if (window.__onTeleport) window.__onTeleport();
+  if (window.__inside && __inside.on) __inside.exit();
   if (LIFE.hot) { LIFE.hot = null; LIFE.own = null; if (window.__police) { __police.showOwn(); setCar(); } }
   if (S.mode === 'foot') { S.mode = 'car'; if (ME.fig) ME.fig.grp.visible = false; document.body.classList.remove('onfoot'); } // your car comes with you
   S.x = x; S.z = z; S.vx = S.vz = 0; S.y = 0; S.vy = 0; camInit = false;
@@ -4814,6 +4820,11 @@ const RENT_AREAS = [ // average monthly rent (all unit sizes)
 const rentArea = (x, z) => { let b = RENT_AREAS[0], bd = 1e18; for (const a of RENT_AREAS) { const d = (a.x - x) ** 2 + (a.z - z) ** 2; if (d < bd) { bd = d; b = a; } } return b; };
 const UNITS = [['Studio', 0.84], ['1 bedroom', 1], ['2 bedroom', 1.3]];
 const aptFactor = a => a.h > 45 ? 1.15 : a.h > 20 ? 1.05 : a.h < 12 ? 0.9 : 1;
+// houses: RentCafe's Minneapolis house average ($2,543, Oct 2026) runs about 1.48× the city's apartment average ($1,720),
+// so a 3-bedroom house rents for ~1.48× the local apartment average; 2- and 4-bedroom houses scale from there
+const houseBeds = hs => hs.area < 110 ? 2 : hs.area < 175 ? 3 : 4;
+const houseRent = hs => Math.round(rentArea(hs.x, hs.z).rent * { 2: 1.2, 3: 1.48, 4: 1.8 }[houseBeds(hs)] / 5) * 5;
+const houseName = hs => { const nr = nearestRoad(hs.x, hs.z, 70); return nr && nr.road.name ? `House on ${nr.road.name}` : `House in ${rentArea(hs.x, hs.z).n}`; };
 const aptRent = (a, u) => Math.round(rentArea(a.x, a.z).rent * UNITS[u][1] * aptFactor(a) / 5) * 5;
 // the lineup: knock-off names, 2026 prices. type → model and handling (CARS); used cars are older and cheaper
 const CATALOG = [
@@ -4916,8 +4927,9 @@ const life = (() => {
     const btn = $('actBtn');
     if (!LIFE_ON() || !started || paused) { if (act) { act = null; btn.classList.remove('on'); } return; }
     const spd = Math.hypot(S.vx, S.vz), c = L.cars[L.active];
+    if (inside.on) { const a = inside.action(); if ((a && a.label) !== (act && act.label)) { act = a; btn.textContent = a ? a.label : ''; btn.classList.toggle('on', !!a); } return; }
     let a = jobs.action();
-    if (a) {} else if (L.home && Math.hypot(L.home.x - S.x, L.home.z - S.z) < 45 && spd < 2) a = { label: '🛏 Sleep until morning', fn: sleep };
+    if (a) {} else if (L.home && Math.hypot(L.home.x - S.x, L.home.z - S.z) < (L.home.kind === 'house' ? 30 : 50) && spd < 2) a = { label: `🚪 Go inside${L.home.kind === 'house' ? '' : ' · ' + L.home.unit}`, fn: () => inside.enter() };
     else if (S.mode !== 'foot' && spd < 1.5 && c && c.fuel < TANK - 0.5) { const g = nearby('gas', 30); if (g) a = { label: `⛽ Fill up · ${money((TANK - c.fuel) * GAS)}`, fn: fillUp }; }
     if (!a && spd < 3) { const d = nearby('dealer', 70); if (d) a = { label: `🚗 Shop at ${d.name}`, fn: () => phone.open('cars') }; }
     if (!a && spd < 2 && S.mode === 'foot') { const ap = nearby('apt', 45); if (ap && !(L.home && Math.hypot(L.home.x - ap.x, L.home.z - ap.z) < 5)) a = { label: `🏢 ${ap.name || 'Apartments'} · see units`, fn: () => phone.open('homes', ap) }; }
@@ -4931,10 +4943,11 @@ const life = (() => {
     c.fuel = TANK; pay(cost, `Gas ${gal.toFixed(1)} gal @ $${GAS}`); toast(`Filled up: ${gal.toFixed(1)} gal, ${money(cost)}`); buzz(20);
   }
   function sleep() {
-    const h = tod, add = h < 7 ? 7 - h : 31 - h;
-    tod = 7; applyTime(tod); tick(add);
+    jobs.syncDay();
+    const h = tod, d = jobs.today(), wT = jobs.wakeFor(d), wake = h < wT - 0.1 ? wT : jobs.wakeFor(d + 1), add = h < wake ? wake - h : 24 + wake - h;
+    tod = wake; applyTime(tod); jobs.syncDay(); if (h >= wake) { /* crossed midnight */ } tick(add);
     L.pos = { x: S.x, z: S.z, h: S.h }; save();
-    toast(`Slept ${Math.round(add)} hours · it's 7:00 AM · game saved`); flashTag('GOOD MORNING');
+    toast(`Slept ${Math.round(add)} hours · it's ${clockText()} · game saved${L.job ? ' · next shift ' + (jobs.nextShift() || {}).label : ''}`); flashTag('GOOD MORNING');
   }
   // ── signing a lease, buying and selling cars ──
   function rentHome(ap, unit) {
@@ -4942,9 +4955,19 @@ const life = (() => {
     if (L.money < deposit) { toast(`You need ${money(deposit)} for the deposit and first week`); return; }
     if (L.home && !confirm(`Move out of ${L.home.name}?`)) return;
     pay(rent, `Security deposit — ${ap.name || 'apartment'}`); pay(wk, `First week's rent`);
-    L.home = { name: ap.name || `Apartments in ${area.n}`, x: ap.x, z: ap.z, rent, unit: UNITS[unit][0], area: area.n };
+    L.home = { name: ap.name || `Apartments in ${area.n}`, x: ap.x, z: ap.z, rent, unit: UNITS[unit][0], area: area.n, kind: 'apt', beds: unit };
     L.lastBill = L.hours; touch(); save();
     toast(`Welcome home: ${L.home.unit} at ${L.home.name}`); flashTag('NEW HOME');
+  }
+  function rentHouse(hs) {
+    const rent = houseRent(hs), wk = Math.round(rent * 12 / 52), deposit = rent + wk, area = rentArea(hs.x, hs.z), beds = houseBeds(hs);
+    if (L.money < deposit) { toast(`You need ${money(deposit)} for the deposit and first week`); return; }
+    if (L.home && !confirm(`Move out of ${L.home.name}?`)) return;
+    const name = houseName(hs);
+    pay(rent, `Security deposit — ${name}`); pay(wk, `First week's rent`);
+    L.home = { name, x: hs.x, z: hs.z, rent, unit: `${beds}-bedroom house`, area: area.n, kind: 'house', beds };
+    L.lastBill = L.hours; touch(); save();
+    toast(`Welcome home: ${L.home.unit} — ${name}`); flashTag('NEW HOME');
   }
   function quote(it) {
     const tax = Math.round(it.price * TAX), total = it.price + tax, down = Math.round(total * 0.1);
@@ -4978,12 +5001,12 @@ const life = (() => {
     removeCar(i); save();
   }
   function gasCan() { const c = L.cars[L.active]; if (!c) return; if (L.money < 45) { toast('Roadside gas costs $45'); return; } pay(45, 'Roadside gas (2 gal)'); c.fuel = Math.min(TANK, c.fuel + 2); toast('2 gallons delivered'); hud(); }
-  return { L, tick, burn, scan, doAction, hud, weekly, rentHome, quote, buyCar, switchCar, sellCar, sellValue, save, outOfGas, nearby, pay, earn, touch, gasCan, atHome };
+  return { rentHouse, sleepNow: sleep, L, tick, burn, scan, doAction, hud, weekly, rentHome, quote, buyCar, switchCar, sellCar, sellValue, save, outOfGas, nearby, pay, earn, touch, gasCan, atHome };
 })();
 // ── the phone: Bank, Homes, Cars, Garage ──
 const phone = (() => {
   const P = $('phone'), body = $('phoneBody'), tabs = [...P.querySelectorAll('[data-tab]')];
-  let tab = 'bank', ctx = null, apts = [], dealer = false;
+  let tab = 'bank', ctx = null, apts = [], houses = [], dealer = false;
   const L = LIFE, esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const ago = h => { const d = L.hours - h; return d < 1 ? 'just now' : d < 24 ? `${Math.round(d)} h ago` : `${Math.round(d / 24)} d ago`; };
   function render() {
@@ -4991,7 +5014,7 @@ const phone = (() => {
     const w = life.weekly(), due = Math.max(0, 168 - (L.hours - (L.lastBill || L.hours)));
     let h = '';
     if (tab === 'bank') {
-      h += `<div class="pBig ${L.money < 0 ? 'neg' : ''}">${money(L.money)}</div><div class="pSub">Checking · Day ${Math.floor(L.hours / 24) + 1}, ${clockText()}</div>`;
+      h += `<div class="pBig ${L.money < 0 ? 'neg' : ''}">${money(L.money)}</div><div class="pSub">Checking · ${jobs.WD[jobs.today() % 7]}, day ${jobs.today() + 1} · ${clockText()}</div>`;
       h += `<div class="pCard"><b>Weekly bills</b><span class="pR">due in ${due < 24 ? Math.round(due) + ' h' : Math.round(due / 24) + ' days'}</span>`;
       h += `<div class="pRow">Rent<span>${money(w.rent)}</span></div><div class="pRow">Car loans<span>${money(w.loans)}</span></div><div class="pRow">Insurance<span>${money(w.ins)}</span></div><div class="pRow tot">Total<span>${money(w.total)}</span></div></div>`;
       h += '<div class="pHead">Activity</div>' + (L.log.length ? L.log.map(e => `<div class="pRow">${esc(e.d)} <small>${ago(e.h)}</small><span class="${e.a < 0 ? 'neg' : 'pos'}">${e.a < 0 ? '−' : '+'}${money(Math.abs(e.a))}</span></div>`).join('') : '<div class="pSub">Nothing yet.</div>');
@@ -5000,20 +5023,31 @@ const phone = (() => {
       const j = L.job, g = jobs.gig();
       if (g) { const G = jobs.G(g.k); h += `<div class="pCard ok"><b>${G.ic} Online: ${esc(G.name)}</b><div class="pSub">${L.gigsDone || 0} jobs done · the clock runs slower while you work</div><button class="pBtn sm" data-act="offline">Go offline</button></div>`; }
       if (j) {
-        const lad = jobs.LAD(j.lad), rk = lad.ranks[j.rank], nx = lad.ranks[j.rank + 1], st = jobs.canShift();
-        h += `<div class="pCard ok"><b>${lad.ic} ${esc(rk.t)}</b><span class="pR">${money(rk.w * jobs.payMult())}/hr</span><div class="pSub">${esc(j.where)} · ${j.total} shift${j.total === 1 ? '' : 's'} worked · ${st === 'done' ? 'done for today' : st === 'hours' ? 'next shift 6 AM–5 PM' : 'you can work a shift now'}</div>`;
+        const lad = jobs.LAD(j.lad), rk = lad.ranks[j.rank], nx = lad.ranks[j.rank + 1], st = jobs.status().k, sc = lad.sched, ns = jobs.nextShift();
+        h += `<div class="pCard ok"><b>${lad.ic} ${esc(rk.t)}</b><span class="pR">${money(rk.w * jobs.payMult())}/hr</span><div class="pSub">${esc(j.where)} · ${j.total} shift${j.total === 1 ? '' : 's'} worked</div>`;
+        h += `<div class="sched">${jobs.WD.map((d, i) => `<i class="${sc.days.includes(i) ? 'on' : ''}${i === jobs.today() % 7 ? ' now' : ''}">${d[0]}</i>`).join('')}<span>${jobs.fh(sc.start)}–${jobs.fh(sc.start + SHIFT_H)}</span></div>`;
+        h += `<div class="pSub"><b>${st === 'now' || st === 'late' ? '🟢 Clock in now' + (st === 'late' ? ' (you’re late!)' : '') : 'Next shift: ' + (ns ? ns.label : '—')}</b>${j.strikes ? ` · ⚠️ ${j.strikes}/3 strikes` : ''}</div>`;
         if (nx) h += `<div class="pSub">Next: <b>${esc(nx.t)}</b> (${money(nx.w)}/hr) — ${Math.min(j.shifts, PROMO_SHIFTS)}/${PROMO_SHIFTS} shifts${jobs.meets(nx.req) ? ' · skills ✓' : ' · needs ' + jobs.reqText(nx.req)}</div>`;
         else h += '<div class="pSub">Top of the ladder.</div>';
         h += `<div class="pUnits"><button class="pBtn sm" data-act="navwork">Navigate to work</button><button class="pBtn sm ghost" data-act="quit">Quit</button></div></div>`;
-      } else h += `<div class="pCard"><b>No job yet</b><div class="pSub">Go online for gigs any time, or apply for a job below — then drive there and clock in for an 8-hour shift. Work earns XP; each level gives a skill point, and skills unlock better jobs.</div></div>`;
+      } else {
+        h += `<div class="pCard ok"><b>👋 How to make money</b><div class="pSub"><b>1.</b> Tap <b>Apply</b> on a job below. <b>2.</b> Tap <b>Navigate to work</b> and drive there. <b>3.</b> Each job has a schedule — be there by your start time and tap the orange <b>🕐 Clock in</b> button. You work 8 hours and get paid. Miss 3 shifts and you’re fired.<br>Or tap <b>Go online</b> on a gig and follow the green beam.</div></div>`;
+        h += '<div class="pHead">Hiring now · you qualify</div>';
+        LADDERS.forEach(lad => {
+          let r = -1; lad.ranks.forEach((rk, i) => { if (jobs.meets(rk.req)) r = i; });
+          if (r < 0) return;
+          const rk = lad.ranks[r];
+          h += `<div class="pCard"><b>${lad.ic} ${esc(rk.t)}</b><span class="pR">${money(rk.w)}/hr</span><div class="pSub">${esc(lad.emp)} · ${money(rk.w * SHIFT_H)} a shift · ${jobs.daysText(lad.sched)} ${jobs.fh(lad.sched.start)}–${jobs.fh(lad.sched.start + SHIFT_H)}</div><button class="pBtn" data-act="apply" data-k="${lad.k}" data-r="${r}">Apply</button></div>`;
+        });
+      }
       h += '<div class="pHead">Gigs · drive for pay</div>';
       GIGS.forEach(G => {
         const ok = jobs.meets(G.req), on = g && g.k === G.k;
         h += `<div class="pCard"><b>${G.ic} ${esc(G.name)}</b><div class="pSub">${esc(G.desc)}</div>${on ? '' : ok ? `<button class="pBtn sm" data-act="online" data-k="${G.k}">Go online</button>` : `<div class="pSub lock">🔒 Needs ${jobs.reqText(G.req)}</div>`}</div>`;
       });
-      h += '<div class="pHead">Careers · real Twin Cities employers</div>';
+      h += '<div class="pHead">Career ladders · skills unlock the next rung</div>';
       LADDERS.forEach(lad => {
-        h += `<div class="pCard"><b>${lad.ic} ${esc(lad.emp)}</b>${lad.anyHour ? '<span class="pR">any hour</span>' : ''}`;
+        h += `<div class="pCard"><b>${lad.ic} ${esc(lad.emp)}</b><span class="pR">${jobs.daysText(lad.sched)} · ${jobs.fh(lad.sched.start)}</span>`;
         lad.ranks.forEach((rk, r) => {
           const mine = j && j.lad === lad.k && j.rank === r, ok = jobs.meets(rk.req);
           h += `<div class="pRow">${mine ? '✅ ' : ok ? '' : '🔒 '}${esc(rk.t)}${ok || mine ? '' : ` <small>${jobs.reqText(rk.req)}</small>`}<span>${money(rk.w)}/hr${ok && !mine ? ` <button class="pBtn sm mini" data-act="apply" data-k="${lad.k}" data-r="${r}">Apply</button>` : ''}</span></div>`;
@@ -5029,14 +5063,23 @@ const phone = (() => {
         h += `<div class="pCard"><b>${ic} ${n}</b><span class="pR">${v}/${SK_MAX}</span><div class="pips">${Array.from({ length: SK_MAX }, (_, i) => `<i class="${i < v ? 'on' : ''}"></i>`).join('')}</div><div class="pSub">${esc(d)}</div>${L.pts && v < SK_MAX ? `<button class="pBtn sm" data-act="spend" data-k="${k}">+1 ${n}</button>` : ''}</div>`;
       });
     } else if (tab === 'homes') {
-      if (L.home) h += `<div class="pCard ok"><b>🏠 ${esc(L.home.name)}</b><div class="pSub">${esc(L.home.unit)} · ${esc(L.home.area)} · ${money(L.home.rent)}/month (${money(L.home.rent * 12 / 52)}/week)</div><button class="pBtn sm" data-act="navhome">Navigate home</button></div>`;
+      if (L.home) h += `<div class="pCard ok"><b>🏠 ${esc(L.home.name)}</b><div class="pSub">${esc(L.home.unit)} · ${esc(L.home.area)} · ${money(L.home.rent)}/month (${money(L.home.rent * 12 / 52)}/week)</div><div class="pSub">Get within a block of it and tap <b>🚪 Go inside</b> to walk around your place, sleep, or use the laptop.</div><button class="pBtn sm" data-act="navhome">Navigate home</button></div>`;
       else h += `<div class="pCard"><b>No place of your own yet</b><div class="pSub">You're crashing on a friend's couch. Rent an apartment and you get somewhere to sleep (skips to morning and saves the game) and to swap cars for free.</div></div>`;
       const list = [];
       for (const t of tiles.values()) for (const a of t.apts || []) { const d = Math.hypot(a.x - S.x, a.z - S.z); if (d < 3500) list.push({ a, d: a === ctx ? -1 : d - (a.name ? 400 : 0) }); }
       list.sort((x, y) => x.d - y.d);
       const seen = new Set(); apts = [];
       for (const it of list) { const k = (it.a.name || '') + Math.round(it.a.x / 80) + ',' + Math.round(it.a.z / 80); if (seen.has(k)) continue; seen.add(k); apts.push(it.a); if (apts.length >= 14) break; }
-      h += `<div class="pHead">For rent near you</div>`;
+      { // houses
+        const hl = []; for (const t of tiles.values()) for (const q of t.houses || []) { const d = Math.hypot(q.x - S.x, q.z - S.z); if (d < 2500) hl.push({ q, d }); }
+        hl.sort((a, b) => a.d - b.d); houses = [];
+        for (const it of hl) { if (houses.some(o => Math.hypot(o.x - it.q.x, o.z - it.q.z) < 120)) continue; houses.push(it.q); if (houses.length >= 5) break; }
+        if (houses.length) {
+          h += `<div class="pHead">Houses for rent</div>`;
+          houses.forEach((q, i) => { const r = houseRent(q); h += `<div class="pCard"><b>🏡 ${esc(houseName(q))}</b><span class="pR">${fmtDist(Math.hypot(q.x - S.x, q.z - S.z))}</span><div class="pSub">${houseBeds(q)} bedrooms · ${rentArea(q.x, q.z).n} · ${Math.round(q.area * 10.76).toLocaleString()} sq ft</div><div class="pUnits"><button class="pBtn sm" data-act="renthouse" data-i="${i}">Rent · <b>${money(r)}</b>/mo</button><button class="pBtn ghost sm" data-act="navhouse" data-i="${i}">Navigate</button></div></div>`; });
+        }
+      }
+      h += `<div class="pHead">Apartments for rent</div>`;
       if (!apts.length) h += '<div class="pSub">No apartment buildings mapped around here — try heading toward a city centre.</div>';
       apts.forEach((a, i) => {
         const area = rentArea(a.x, a.z), d = Math.hypot(a.x - S.x, a.z - S.z);
@@ -5070,6 +5113,8 @@ const phone = (() => {
     else if (a === 'drive') { life.switchCar(i); render(); }
     else if (a === 'sell') { life.sellCar(i); render(); }
     else if (a === 'gascan') { life.gasCan(); render(); }
+    else if (a === 'renthouse') { life.rentHouse(houses[i]); render(); }
+    else if (a === 'navhouse') { const q = houses[i]; close(); startNav(q.x, q.z, houseName(q)); }
     else if (a === 'online') { close(); jobs.goOnline(b.dataset.k); }
     else if (a === 'offline') { jobs.goOffline(); render(); }
     else if (a === 'apply') { jobs.apply(b.dataset.k, +b.dataset.r); render(); }
@@ -5111,17 +5156,17 @@ const GIGS = [
 const GARAGE = (() => { const [x, z] = proj(44.9862, -93.2844); return { x, z, n: 'Heywood Garage' }; })();
 // career ladders: the employer, where you clock in (a real location — chains use the store nearest you when you apply), and the ranks
 const LADDERS = [
-  { k: 'coffee', emp: 'Caribou Coffee', ic: '☕', match: /caribou/i, at: [44.9762, -93.2733], ranks: [
+  { k: 'coffee', sched: { start: 6, days: [0, 1, 2, 3, 4] }, emp: 'Caribou Coffee', ic: '☕', match: /caribou/i, at: [44.9762, -93.2733], ranks: [
     { t: 'Barista', w: 16.37, req: {} }, { t: 'Shift Lead', w: 18.75, req: { people: 2 } }, { t: 'Café Manager', w: 25.5, req: { people: 4, biz: 2 } }] },
-  { k: 'retail', emp: 'Target', ic: '🎯', match: /^target\b/i, at: [44.9746, -93.2738], ranks: [
+  { k: 'retail', sched: { start: 10, days: [2, 3, 4, 5, 6] }, emp: 'Target', ic: '🎯', match: /^target\b/i, at: [44.9746, -93.2738], ranks: [
     { t: 'Team Member', w: 17.5, req: {} }, { t: 'Team Lead', w: 22.75, req: { people: 3 } }, { t: 'Executive Team Leader', w: 33, req: { people: 4, biz: 3 } }, { t: 'Store Director', w: 52, req: { people: 5, biz: 6 } }] },
-  { k: 'trades', emp: 'Mortenson Construction', ic: '🏗️', at: [44.9849, -93.3348], ranks: [
+  { k: 'trades', sched: { start: 7, days: [0, 1, 2, 3, 4] }, emp: 'Mortenson Construction', ic: '🏗️', at: [44.9849, -93.3348], ranks: [
     { t: 'Construction Laborer', w: 24.5, req: {} }, { t: 'Apprentice Electrician', w: 27, req: { hands: 2 } }, { t: 'Journeyman Electrician', w: 48.5, req: { hands: 5, tech: 1 } }, { t: 'Master Electrician', w: 58, req: { hands: 8, tech: 2, biz: 2 } }] },
-  { k: 'health', emp: 'Hennepin Healthcare (HCMC)', ic: '🏥', at: [44.9727, -93.2617], anyHour: true, ranks: [
+  { k: 'health', sched: { start: 7, days: [0, 2, 4, 5, 6] }, emp: 'Hennepin Healthcare (HCMC)', ic: '🏥', at: [44.9727, -93.2617], ranks: [
     { t: 'Nursing Assistant', w: 21, req: { people: 1 } }, { t: 'Licensed Practical Nurse', w: 30.5, req: { people: 2, tech: 2 } }, { t: 'Registered Nurse', w: 52.5, req: { people: 3, tech: 5 } }, { t: 'Charge Nurse', w: 61, req: { people: 4, tech: 6, biz: 2 } }] },
-  { k: 'tech', emp: 'Best Buy HQ', ic: '💻', at: [44.8626, -93.3082], ranks: [
+  { k: 'tech', sched: { start: 9, days: [0, 1, 2, 3, 4] }, emp: 'Best Buy HQ', ic: '💻', at: [44.8626, -93.3082], ranks: [
     { t: 'Geek Squad Agent', w: 19.5, req: { tech: 1 } }, { t: 'IT Support Specialist', w: 29, req: { tech: 3 } }, { t: 'Software Engineer', w: 57, req: { tech: 6 } }, { t: 'Senior Software Engineer', w: 74, req: { tech: 8, biz: 2 } }] },
-  { k: 'bank', emp: 'U.S. Bank', ic: '🏦', at: [44.9757, -93.2730], ranks: [
+  { k: 'bank', sched: { start: 9, days: [0, 1, 2, 3, 4] }, emp: 'U.S. Bank', ic: '🏦', at: [44.9757, -93.2730], ranks: [
     { t: 'Bank Teller', w: 21.55, req: { people: 1 } }, { t: 'Personal Banker', w: 26.5, req: { people: 2, biz: 2 } }, { t: 'Financial Analyst', w: 45, req: { biz: 5, tech: 1 } }, { t: 'Branch Manager', w: 62, req: { biz: 7, people: 4 } }] },
 ];
 const SHIFT_H = 8, PROMO_SHIFTS = 3;
@@ -5338,33 +5383,68 @@ const jobs = (() => {
     if (!meets(rank.req)) return;
     if (L.job && !confirm(`Quit your job as ${LAD(L.job.lad).ranks[L.job.rank].t}?`)) return;
     const w = workplace(lad);
-    L.job = { lad: k, rank: r, shifts: 0, total: 0, last: L.hours, lastDay: -1, x: w.x, z: w.z, where: w.n };
+    syncDay(); L.job = { lad: k, rank: r, shifts: 0, total: 0, last: L.hours, lastDay: -1, x: w.x, z: w.z, where: w.n, strikes: 0 };
     life.touch(); life.save();
-    flashTag('HIRED'); toast(`You’re hired: ${rank.t} at ${w.n} · ${money(rank.w)}/hr`);
+    const sc = lad.sched, n = nextShift(); flashTag('HIRED'); toast(`Hired: ${rank.t} at ${w.n} · ${money(rank.w)}/hr · ${daysText(sc)} ${fh(sc.start)}–${fh(sc.start + SHIFT_H)} · first shift ${n ? n.label : ''}`);
+    phone.close(); startNav(w.x, w.z, w.n);
   }
   function quit() { if (!L.job) return; const t = LAD(L.job.lad).ranks[L.job.rank].t; if (!confirm(`Quit your job as ${t}?`)) return; L.job = null; life.touch(); life.save(); toast('You quit'); }
-  const canShift = () => {
-    const j = L.job; if (!j) return 'none';
-    const lad = LAD(j.lad);
-    if (dayOf(L.hours) === j.lastDay) return 'done';
-    if (!lad.anyHour && (tod < 6 || tod > 17)) return 'hours';
-    return 'ok';
-  };
+  // ── work schedules: set days and a set start time; show up within the window or it counts as a missed shift ──
+  const WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const fh = h => { const hh = Math.floor(h), m = Math.round((h - hh) * 60); return `${(hh + 11) % 12 + 1}${m ? ':' + String(m).padStart(2, '0') : ''} ${hh % 24 < 12 ? 'AM' : 'PM'}`; };
+  const sched = j => LAD(j.lad).sched;
+  const workday = (j, d) => sched(j).days.includes(((d % 7) + 7) % 7);
+  const daysText = sc => { const d = sc.days; if (d.every((v, i) => !i || v === d[i - 1] + 1) && d.length > 2) return `${WD[d[0]]}–${WD[d[d.length - 1]]}`; return d.map(i => WD[i]).join(', '); };
+  function syncDay() { if (L.lastTod != null && tod < L.lastTod - 1e-6) { L.day = (L.day || 0) + 1; life.touch(); } L.lastTod = tod; }
+  const today = () => L.day || 0;
+  function status() {
+    const j = L.job; if (!j) return { k: 'none' };
+    const sc = sched(j), d = today();
+    if (j.lastDay === d) return { k: 'done' };
+    if (!workday(j, d)) return { k: 'off' };
+    if (tod < sc.start - 1) return { k: 'early' };
+    if (tod <= sc.start + 0.25) return { k: 'now' };
+    if (tod <= sc.start + 1.5) return { k: 'late' };
+    return { k: 'missed' };
+  }
+  function nextShift() {
+    const j = L.job; if (!j) return null;
+    const sc = sched(j), d0 = today(), st = status().k;
+    for (let k = 0; k < 8; k++) {
+      const d = d0 + k; if (!workday(j, d)) continue;
+      if (k === 0 && (st === 'done' || st === 'missed')) continue;
+      return { d, k, label: `${k === 0 ? 'Today' : k === 1 ? 'Tomorrow' : WD[d % 7]} ${fh(sc.start)}` };
+    }
+    return null;
+  }
+  // the hour to wake up for a given day: 1½ hours before an early shift, otherwise 7 AM
+  function wakeFor(d) { const j = L.job; if (!j || !workday(j, d)) return 7; return Math.min(7, sched(j).start - 1.5); }
+  function strike(why) {
+    const j = L.job; j.strikes = (j.strikes || 0) + 1; life.touch();
+    if (j.strikes >= 3) { toast(`You were fired from ${LAD(j.lad).emp} — ${why}, 3 strikes`); flashTag('FIRED'); L.job = null; life.save(); return; }
+    toast(`⚠️ ${why} — strike ${j.strikes} of 3 at ${LAD(j.lad).emp}`);
+  }
   function work() {
     const j = L.job; if (!j) return;
-    const st = canShift();
-    if (st === 'done') { toast('You already worked today — come back tomorrow'); return; }
-    if (st === 'hours') { toast('Day shifts start between 6 AM and 5 PM'); return; }
+    const st = status().k, sc = sched(j);
+    if (st === 'done') { toast('You already worked today'); return; }
+    if (st === 'off') { const n = nextShift(); toast(`Day off — your next shift is ${n ? n.label : 'soon'}`); return; }
+    if (st === 'early') { toast(`Your shift starts at ${fh(sc.start)}`); return; }
+    if (st === 'missed') { toast('Too late for today’s shift'); return; }
     if (gig) goOffline(true);
-    const lad = LAD(j.lad), rank = lad.ranks[j.rank], pay = rank.w * SHIFT_H * payMult();
-    tod = (tod + SHIFT_H) % 24; applyTime(tod); life.tick(SHIFT_H);
-    j.shifts++; j.total++; j.last = L.hours; j.lastDay = dayOf(L.hours - SHIFT_H);
-    life.earn(Math.round(pay * 100) / 100, `Paycheck — ${rank.t}, ${SHIFT_H} h`);
-    flashTag(`+${money(pay)}`); toast(`Worked an ${SHIFT_H}-hour shift as ${rank.t} · ${money(pay)} deposited · it's ${clockText()}`);
+    const late = Math.max(0, tod - sc.start), hrs = SHIFT_H - (st === 'late' ? late : 0);
+    const lad = LAD(j.lad), rank = lad.ranks[j.rank], pay = rank.w * hrs * payMult();
+    j.lastDay = today();
+    tod = (tod + hrs) % 24; applyTime(tod); life.tick(hrs); syncDay();
+    j.shifts++; j.total++; j.last = L.hours;
+    life.earn(Math.round(pay * 100) / 100, `Paycheck — ${rank.t}, ${hrs.toFixed(hrs % 1 ? 1 : 0)} h`);
+    flashTag(`+${money(pay)}`);
+    toast(st === 'late' ? `You were ${Math.round(late * 60)} min late — paid for ${hrs.toFixed(1)} h · ${money(pay)} · it's ${clockText()}` : `Worked your ${fh(sc.start)}–${fh(sc.start + SHIFT_H)} shift as ${rank.t} · ${money(pay)} deposited`);
     gainXP(35 + 10 * j.rank);
     checkPromo();
     L.pos = { x: S.x, z: S.z, h: S.h }; life.save();
   }
+  function waitForShift() { const sc = sched(L.job), add = sc.start - 0.25 - tod; if (add <= 0) return; tod += add; applyTime(tod); life.tick(add); toast(`It's ${clockText()} — time to clock in`); }
   function checkPromo(quiet) {
     const j = L.job; if (!j) return;
     const lad = LAD(j.lad), next = lad.ranks[j.rank + 1]; if (!next) return;
@@ -5374,24 +5454,34 @@ const jobs = (() => {
       flashTag('PROMOTED'); setTimeout(() => toast(`Promoted to ${next.t} · ${money(next.w)}/hr`), quiet ? 0 : 2200);
     } else if (!quiet && !j.toldNeed) { j.toldNeed = true; setTimeout(() => toast(`Ready for promotion to ${next.t} — you need ${reqText(next.req)}`), 2200); }
   }
-  // no show for a week → fired
+  // missed shifts become strikes; a heads-up before each shift
   function tick() {
+    syncDay();
     const j = L.job; if (!j) return;
-    if (L.hours - j.last > 168) { toast(`You were let go from ${LAD(j.lad).emp} — no shifts in a week`); L.job = null; life.touch(); }
+    if (j.checked == null) j.checked = today() - (tod > sched(j).start + 1.5 ? 0 : 1); // hired today after the window: today doesn't count
+    const sc = sched(j), d = today();
+    while (j.checked < d - 1 && L.job) { j.checked++; if (workday(j, j.checked) && j.lastDay !== j.checked && j.struck !== j.checked) strike(`missed your ${WD[j.checked % 7]} shift`); }
+    if (!L.job) return;
+    if (workday(j, d) && j.lastDay !== d && j.struck !== d && tod > sc.start + 1.5 && j.checked < d) { j.struck = d; strike('no-show for today’s shift'); }
+    if (L.job && workday(j, d) && j.lastDay !== d && tod > sc.start - 1.5 && tod < sc.start - 0.5 && j.remind !== d) {
+      j.remind = d; toast(`⏰ Your shift at ${LAD(j.lad).emp} starts at ${fh(sc.start)} — time to head to work`); buzz(40);
+    }
   }
   // the action button at your workplace
   function action() {
-    const j = L.job; if (!j || gig) return null;
+    const j = L.job; if (!j || gig || inside.on) return null;
     if (Math.hypot(S.x - j.x, S.z - j.z) > 130 || Math.hypot(S.vx, S.vz) > 2) return null;
-    const rank = LAD(j.lad).ranks[j.rank], st = canShift();
-    if (st === 'done') return { label: '🕐 Shift done for today', fn: () => toast('You already worked today — come back tomorrow') };
-    if (st === 'hours') return { label: '🕐 Come back 6 AM–5 PM', fn: () => toast('Day shifts start between 6 AM and 5 PM — sleep or wait it out (T skips an hour)') };
-    return { label: `🕐 Clock in · ${SHIFT_H} h · ${money(rank.w * SHIFT_H * payMult())}`, fn: work };
+    const rank = LAD(j.lad).ranks[j.rank], st = status().k, sc = sched(j), n = nextShift();
+    if (st === 'done') return { label: `✅ Done today · next ${n ? n.label : ''}`, fn: () => toast(`Your next shift: ${n ? n.label : '—'}`) };
+    if (st === 'off') return { label: `📅 Day off · next ${n ? n.label : ''}`, fn: () => toast(`Your schedule: ${daysText(sc)}, ${fh(sc.start)}–${fh(sc.start + SHIFT_H)}`) };
+    if (st === 'missed') return { label: '❌ Missed today’s shift', fn: () => toast(`Your next shift: ${n ? n.label : '—'}`) };
+    if (st === 'early') return { label: `⏳ Wait for your ${fh(sc.start)} shift`, fn: waitForShift };
+    return { label: `🕐 Clock in${st === 'late' ? ' (late)' : ''} · ${money(rank.w * SHIFT_H * payMult())}`, fn: work };
   }
-  function hud() { const b = $('lvPill'); if (b) { b.textContent = `Lv ${L.lv}${L.pts ? ' · ' + L.pts + ' pt' + (L.pts > 1 ? 's' : '') : ''}`; b.classList.toggle('pts', L.pts > 0); } }
+  function hud() { $('btnPhone').classList.toggle('badge', !L.job && !gig && !(L.gigsDone > 0)); const b = $('lvPill'); if (b) { b.textContent = `Lv ${L.lv}${L.pts ? ' · ' + L.pts + ' pt' + (L.pts > 1 ? 's' : '') : ''}`; b.classList.toggle('pts', L.pts > 0); } }
   $('gigQuit').onclick = () => goOffline();
   window.__onTeleport = () => { if (gig) { goOffline(true); toast('Teleporting ended your gig'); } };
-  return { gainXP, spend, sk, meets, reqText, goOnline, goOffline, update, clockRate, apply, quit, work, action, tick, hud, canShift, LAD, G,
+  return { gainXP, spend, sk, meets, reqText, goOnline, goOffline, update, clockRate, apply, quit, work, action, tick, hud, status, nextShift, wakeFor, fh, daysText, today, syncDay, WD, LAD, G,
     gig: () => gig, payMult, gigMult, tipMult, workplace };
 })();
 
@@ -5420,6 +5510,7 @@ const police = (() => {
   // ── on foot: the door button / F ──
   const nearTraffic = R => { let best = null, bd = R; for (const c of traffic.cars) { if (c.free || c.v > 6) continue; const d = Math.hypot(c.x - S.x, c.z - S.z); if (d < bd && Math.abs(c.y - S.y) < 2.5) { bd = d; best = c; } } return best; };
   function doorState() {
+    if (inside.on) return null;
     if (Math.hypot(S.x - PARKED.x, S.z - PARKED.z) < 4) return L.hot ? 'hot' : 'car';
     if (!LIFE_ON()) return null;
     if (L.own && Math.hypot(S.x - L.own.x, S.z - L.own.z) < 4.5) return 'own';
@@ -5534,6 +5625,185 @@ const police = (() => {
   return { update, tryEnter, doorState, dropHot, addWanted, clearWanted, stars: () => W.stars, W, showOwn };
 })();
 window.__police = police; window.__traffic = traffic;
+// ───────────────────────── inside your home: a furnished floor plan you walk around in ─────────────────────────
+// Its own little scene (no ceiling, seen from above and behind like a dollhouse). The world outside keeps running; you
+// come back out where you went in. Size follows what you rent: studio → 4-bedroom house.
+const inside = (() => {
+  const sc = new THREE.Scene(); sc.background = new THREE.Color('#1a1d22');
+  sc.add(new THREE.HemisphereLight('#fff8ee', '#5a5048', 2.4));
+  const sunL = new THREE.DirectionalLight('#ffffff', 1.1); sunL.position.set(4, 10, 6); sc.add(sunL);
+  const room = new THREE.Group(); sc.add(room);
+  const IN = { on: false, P: { x: 0, z: 0, h: 0, vx: 0, vz: 0 }, out: null, cols: [], spots: [], W: 0, D: 0, cam: new THREE.Vector3(), look: new THREE.Vector3(), camInit: false, built: null };
+  const mats = {};
+  const M = c => mats[c] || (mats[c] = new THREE.MeshLambertMaterial({ color: c }));
+  const winMat = new THREE.MeshBasicMaterial({ color: '#bfe0ff' });
+  function box(w, h, d, x, y, z, c, solid) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), typeof c === 'string' ? M(c) : c); m.position.set(x, y, z); room.add(m);
+    if (solid) IN.cols.push([x - w / 2, z - d / 2, x + w / 2, z + d / 2]);
+    return m;
+  }
+  const WALL_H = 2.7, T = 0.14;
+  // a straight wall from (x0,z0) to (x1,z1) (axis-aligned) with optional door gaps [from, to] along it
+  function wall(x0, z0, x1, z1, gaps = [], col) {
+    const horiz = z0 === z1, a0 = horiz ? Math.min(x0, x1) : Math.min(z0, z1), a1 = horiz ? Math.max(x0, x1) : Math.max(z0, z1);
+    const cuts = [a0, ...gaps.flat(), a1];
+    for (let i = 0; i < cuts.length; i += 2) {
+      const s = cuts[i], e = cuts[i + 1]; if (e - s < 0.05) continue;
+      if (horiz) box(e - s, WALL_H, T, (s + e) / 2, WALL_H / 2, z0, col, true); else box(T, WALL_H, e - s, x0, WALL_H / 2, (s + e) / 2, col, true);
+    }
+    for (const [s, e] of gaps) { if (horiz) box(e - s, 0.5, T, (s + e) / 2, WALL_H - 0.25, z0, col); else box(T, 0.5, e - s, x0, WALL_H - 0.25, (s + e) / 2, col); } // header over the doorway
+  }
+  const spot = (x, z, r, label, fn) => IN.spots.push({ x, z, r, label, fn });
+  function clear() {
+    room.traverse(o => { if (o.geometry) o.geometry.dispose(); });
+    room.clear(); IN.cols = []; IN.spots = [];
+  }
+  // ── furniture ──
+  function bed(x, z, rot, dbl, col, main) {
+    const w = dbl ? 1.6 : 1.0, l = 2.05, g = new THREE.Group(); room.add(g); g.position.set(x, 0, z); g.rotation.y = rot;
+    const add = (bw, bh, bd, bx, by, bz, c) => { const m = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), M(c)); m.position.set(bx, by, bz); g.add(m); };
+    add(w + 0.1, 0.35, l + 0.1, 0, 0.18, 0, '#6b4f3a'); add(w, 0.22, l, 0, 0.46, 0, '#f2efe8'); add(w + 0.1, 0.95, 0.08, 0, 0.48, -l / 2 - 0.05, '#5a4030');
+    add(w * 0.9, 0.12, 0.42, 0, 0.62, -l / 2 + 0.3, '#ffffff'); add(w + 0.02, 0.08, l * 0.62, 0, 0.6, l * 0.17, col);
+    const c = Math.abs(Math.cos(rot)) > 0.5, hw = (c ? w : l) / 2 + 0.05, hd = (c ? l : w) / 2 + 0.05; IN.cols.push([x - hw, z - hd, x + hw, z + hd]);
+    if (main) spot(x + Math.sin(rot) * (l / 2 + 0.4), z + Math.cos(rot) * (l / 2 + 0.4), 1.6, '🛏 Sleep until morning', () => life.sleepNow());
+  }
+  function couch(x, z, rot, col) {
+    const g = new THREE.Group(); room.add(g); g.position.set(x, 0, z); g.rotation.y = rot;
+    const add = (bw, bh, bd, bx, by, bz, c) => { const m = new THREE.Mesh(new THREE.BoxGeometry(bw, bh, bd), M(c)); m.position.set(bx, by, bz); g.add(m); };
+    add(2.2, 0.42, 0.9, 0, 0.21, 0, col); add(2.2, 0.5, 0.2, 0, 0.62, -0.35, col); add(0.2, 0.3, 0.9, -1.0, 0.55, 0, col); add(0.2, 0.3, 0.9, 1.0, 0.55, 0, col);
+    add(0.9, 0.08, 0.7, -0.5, 0.46, 0.05, '#e6e0d4'); add(0.9, 0.08, 0.7, 0.5, 0.46, 0.05, '#e6e0d4');
+    const c = Math.abs(Math.cos(rot)) > 0.5; IN.cols.push(c ? [x - 1.15, z - 0.5, x + 1.15, z + 0.5] : [x - 0.5, z - 1.15, x + 0.5, z + 1.15]);
+  }
+  // ── the floor plan ──
+  function build(home) {
+    clear();
+    const beds = home.beds ?? (/studio/i.test(home.unit) ? 0 : parseInt(home.unit) || 1), house = home.kind === 'house', lux = home.rent > 2400;
+    const W = 7.4 + beds * 3.3, Dl = beds ? 6.2 : 7.4, Db = beds ? 4.2 : 0, D = Dl + Db; IN.W = W; IN.D = D;
+    const floorC = lux ? '#c9b08a' : house ? '#a9825c' : '#b89b78', wallC = lux ? '#f1ede6' : '#e4ddd0', trim = '#d9d2c4';
+    box(W, 0.1, D, W / 2, -0.05, D / 2, floorC); // floor
+    box(W + 0.6, 0.06, D + 0.6, W / 2, -0.12, D / 2, '#2a2d33');
+    // outside walls, the front door at x 1.2–2.3
+    wall(0, 0, W, 0, [[1.2, 2.3]], wallC); wall(0, D, W, D, [], wallC); wall(0, 0, 0, D, [], wallC); wall(W, 0, W, D, [], wallC);
+    box(1.1, 2.1, 0.06, 1.75, 1.05, -0.02, '#7b5a3c'); // the door itself (in the wall, you walk up to it)
+    spot(1.75, 0.6, 1.1, '🚪 Go outside', exit);
+    // windows on the back and sides
+    const win = (x, z, w, side) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, 1.3), winMat); m.position.set(x, 1.55, z); if (side) m.rotation.y = side; room.add(m); };
+    if (beds) for (let i = 0; i < beds; i++) win(W * (i + 0.5) / beds, D - T / 2 - 0.01, 1.4, Math.PI);
+    else win(W / 2, D - T / 2 - 0.01, 2.4, Math.PI);
+    win(T / 2 + 0.01, Dl * 0.55, 1.8, Math.PI / 2); win(W - T / 2 - 0.01, Dl * 0.55, 1.8, -Math.PI / 2);
+    // bathroom in the front-right corner
+    const bw = 2.6, bd = 2.5;
+    wall(W - bw, bd, W, bd, [], wallC); wall(W - bw, 0, W - bw, bd, [[bd - 1.1, bd - 0.2]], wallC);
+    box(bw - T, 0.02, bd - T, W - bw / 2, 0.01, bd / 2, '#dfe6ea');
+    box(0.75, 0.55, 1.5, W - 0.5, 0.28, 0.85, '#f4f6f7', true); // tub
+    box(0.45, 0.42, 0.6, W - bw + 0.45, 0.21, 0.5, '#f4f6f7', true); // toilet
+    box(0.7, 0.85, 0.45, W - 1.25, 0.43, 0.32, '#f4f6f7', true); // sink
+    box(0.6, 0.75, 0.03, W - 1.25, 1.45, 0.09, '#9fb4c2'); // mirror
+    // kitchen along the left wall
+    box(0.62, 0.92, 3.0, 0.38, 0.46, 3.0, lux ? '#3a3f47' : '#8a6d52', true); box(0.66, 0.05, 3.04, 0.38, 0.94, 3.0, lux ? '#e8e8e6' : '#cfc7b8');
+    box(0.7, 1.85, 0.75, 0.42, 0.93, 5.0, '#d9dcdf', true); // fridge
+    box(0.5, 0.02, 0.5, 0.38, 0.97, 2.4, '#222'); // stove top
+    box(0.62, 0.7, 2.2, 0.38, 1.95, 3.0, lux ? '#3a3f47' : '#8a6d52'); // upper cabinets
+    spot(1.1, 2.4, 1.0, '🍳 Cook dinner · $9 groceries', () => { if (LIFE.money < 9) { toast('Not even $9 for groceries…'); return; } life.pay(9, 'Groceries'); toast('You made pasta. Not bad!'); tod = (tod + 0.75) % 24; applyTime(tod); life.tick(0.75); });
+    // living room: couch facing a TV, rug, coffee table; a desk with a laptop; dining table
+    const lx = beds ? 3.6 + beds * 0.6 + 0.6 : Math.min(W - bw - 1.6, 3.6), lz = 3.4;
+    box(2.8, 0.02, 2.0, lx, 0.01, lz, lux ? '#6a7c8f' : '#8a4f3c'); // rug
+    couch(lx, lz + 1.15, Math.PI, lux ? '#3c4a5c' : house ? '#6b7a55' : '#5a6270');
+    box(1.1, 0.4, 0.6, lx, 0.2, lz, '#5a4030', true); // coffee table
+    box(1.6, 0.5, 0.45, lx, 0.25, 1.0 + 0.25, '#2b2b2b', true); box(1.5, 0.85, 0.06, lx, 1.05, 1.05 + 0.25, '#111'); // TV stand + TV
+    spot(lx, lz + 0.4, 1.3, '📺 Watch TV · 1 hour', () => { tod = (tod + 1) % 24; applyTime(tod); life.tick(1); toast(['The Vikings lost a heartbreaker.', 'You binged a cooking show.', 'Local news: snow emergency rules explained.', 'Twins highlights — still a rebuild.', 'A documentary about Prince. Great.'][(Math.random() * 5) | 0]); });
+    const dx = beds ? W - bw - 1.0 : 1.9, dz = Dl - 0.6;
+    box(1.3, 0.75, 0.6, dx, 0.38, dz, '#6b4f3a', true); box(0.36, 0.02, 0.26, dx, 0.77, dz, '#2c2f35'); box(0.36, 0.24, 0.02, dx, 0.89, dz + 0.12, '#3d5a80'); // desk + laptop
+    box(0.45, 0.85, 0.45, dx, 0.42, dz - 0.6, '#333', false);
+    spot(dx, dz - 0.75, 1.0, '💻 Laptop · find a job', () => phone.open('jobs'));
+    if (beds) box(1.2, 0.75, 0.8, 2.6, 0.38, 5.0, '#7a5a40', true); if (beds) for (const sx of [-0.75, 0.75]) box(0.42, 0.45, 0.42, 2.6 + sx, 0.23, 5.0, '#5a4030', false); // dining
+    // plants and lamps
+    box(0.4, 0.4, 0.4, W - bw - 0.4, 0.2, 0.5, '#7a5a40'); box(0.6, 0.8, 0.6, W - bw - 0.4, 0.8, 0.5, '#3f7a4a');
+    // bedrooms across the back (a studio just gets a bed in the corner)
+    if (!beds) { bed(W - 1.1, D - 1.35, Math.PI, true, lux ? '#2f4f7a' : '#7a2f3c', true); box(1.2, 2.0, 0.6, W - 3.0, 1.0, D - 0.4, '#8a6d52', true); spot(W - 3.0, D - 1.1, 1.0, '👕 Change outfit', outfit); }
+    else {
+      const rw = W / beds;
+      wall(0, Dl, W, Dl, Array.from({ length: beds }, (_, i) => [i * rw + rw * 0.5 - 0.55, i * rw + rw * 0.5 + 0.55]).map(([a, b]) => [Math.max(0.2, a), Math.min(W - 0.2, b)]), wallC);
+      for (let i = 1; i < beds; i++) wall(i * rw, Dl, i * rw, D, [], wallC);
+      for (let i = 0; i < beds; i++) {
+        const cx = i * rw + rw / 2;
+        box(rw - T, 0.02, Db - T, cx, 0.012, Dl + Db / 2, i === 0 ? (lux ? '#a3a0b5' : '#9a8f80') : '#a59a86');
+        bed(cx + (i === 0 ? 0.2 : 0.4), D - 1.15, Math.PI, i === 0, ['#2f4f7a', '#7a6a2f', '#3f7a4a', '#7a2f3c'][i % 4], i === 0);
+        box(0.45, 0.5, 0.4, cx - (i === 0 ? 1.05 : 0.5), 0.25, D - 0.35, '#6b4f3a', true); // nightstand
+        if (i === 0) { box(1.2, 2.0, 0.6, i * rw + 0.75, 1.0, Dl + 0.45, '#8a6d52', true); spot(i * rw + 0.75, Dl + 1.15, 1.0, '👕 Change outfit', outfit); }
+      }
+    }
+    IN.built = home;
+  }
+  function outfit() {
+    const i = CHAR_LIST.findIndex(c => c[0] === (settings.char || 'ch01')), next = CHAR_LIST[(i + 1) % CHAR_LIST.length];
+    settings.char = next[0]; saveSettings(); $('optChar').value = next[0];
+    useCharacter(next[0]).then(F => { if (IN.on && F) { sc.add(F.grp); F.grp.visible = true; } toast(`Now playing as ${next[1]}`); }).catch(() => {});
+  }
+  // ── going in and out ──
+  async function enter() {
+    const h = LIFE.home; if (!h || IN.on) return;
+    if (police.stars()) { toast('The cops are watching — lose them first'); return; }
+    if (jobs.gig()) { toast('Go offline first'); return; }
+    if (S.mode !== 'foot') { await toggleFoot(); if (S.mode !== 'foot') return; }
+    const F = ME.fig || await useCharacter(settings.char || 'ch01').catch(() => null); if (!F) return;
+    if (IN.built !== h) build(h);
+    IN.out = { x: S.x, y: S.y, z: S.z, h: S.h };
+    Object.assign(IN.P, { x: 1.75, z: 1.3, h: 0, vx: 0, vz: 0 });
+    S.vx = S.vz = 0;
+    sc.add(F.grp); F.grp.visible = true;
+    IN.on = true; IN.camInit = false; document.body.classList.add('inside');
+    $('doorHint').classList.remove('on');
+    toast(`Home: ${h.name}`);
+  }
+  function exit() {
+    if (!IN.on) return;
+    IN.on = false; document.body.classList.remove('inside');
+    if (ME.fig) scene.add(ME.fig.grp);
+    Object.assign(S, { x: IN.out.x, y: IN.out.y, z: IN.out.z, h: IN.out.h + Math.PI, vx: 0, vz: 0, vy: 0 });
+    ME.near = undefined; camInit = false;
+  }
+  // ── walking around ──
+  function update(dt) {
+    const P = IN.P, steer = input.right - input.left, fwd = input.up - input.down;
+    P.h -= steer * FOOT.turn * dt * (fwd < 0 ? -1 : 1);
+    const want = fwd > 0 ? (input.boost ? 4.2 : 2.6) : fwd < 0 ? -1.2 : 0, fx = Math.sin(P.h), fz = Math.cos(P.h);
+    let v = P.vx * fx + P.vz * fz; v += Math.max(-12 * dt, Math.min(10 * dt, want - v));
+    P.vx = fx * v; P.vz = fz * v; P.x += P.vx * dt; P.z += P.vz * dt;
+    const R = 0.3;
+    for (const [x0, z0, x1, z1] of IN.cols) {
+      const qx = Math.max(x0, Math.min(x1, P.x)), qz = Math.max(z0, Math.min(z1, P.z)), dx = P.x - qx, dz = P.z - qz, d = Math.hypot(dx, dz);
+      if (d >= R) continue;
+      if (d > 1e-6) { P.x = qx + dx / d * R; P.z = qz + dz / d * R; }
+      else { const l = P.x - x0, r = x1 - P.x, b = P.z - z0, t = z1 - P.z, m = Math.min(l, r, b, t); if (m === l) P.x = x0 - R; else if (m === r) P.x = x1 + R; else if (m === b) P.z = z0 - R; else P.z = z1 + R; }
+    }
+    P.x = Math.max(0.3, Math.min(IN.W - 0.3, P.x)); P.z = Math.max(0.3, Math.min(IN.D - 0.3, P.z));
+    // animate the character with the outdoor gait code, borrowing S for a moment
+    const F = ME.fig;
+    if (F) {
+      const sv = { x: S.x, z: S.z, y: S.y, h: S.h, vx: S.vx, vz: S.vz, vy: S.vy, groundH: S.groundH };
+      Object.assign(S, { x: P.x, z: P.z, y: 0, h: P.h, vx: P.vx, vz: P.vz, vy: 0, groundH: 0 });
+      animateFoot(dt); F.root.position.y = 0;
+      Object.assign(S, sv);
+    }
+    // dollhouse camera: up and behind, smoothed
+    const cx = P.x - Math.sin(P.h) * 3.4, cz = P.z - Math.cos(P.h) * 3.4;
+    const k = IN.camInit ? 1 - Math.exp(-dt * 5) : 1; IN.camInit = true;
+    IN.cam.x += (cx - IN.cam.x) * k; IN.cam.y += (6.4 - IN.cam.y) * k; IN.cam.z += (cz - IN.cam.z) * k;
+    IN.look.x += (P.x + Math.sin(P.h) * 0.8 - IN.look.x) * k; IN.look.y = 0.9; IN.look.z += (P.z + Math.cos(P.h) * 0.8 - IN.look.z) * k;
+    camera.position.copy(IN.cam); camera.lookAt(IN.look);
+    if (Math.abs(camera.fov - 55) > 0.1) { camera.fov = 55; camera.updateProjectionMatrix(); }
+    // windows follow the time of day
+    winMat.color.set(NIGHT.value > 0.5 ? '#1c2742' : NIGHT.value > 0.15 ? '#c98a5a' : WX.precip > 0.5 ? '#9aa6b2' : '#bfe0ff');
+  }
+  function action() {
+    let best = null, bd = 1e9;
+    for (const s of IN.spots) { const d = Math.hypot(s.x - IN.P.x, s.z - IN.P.z); if (d < s.r && d < bd) { bd = d; best = s; } }
+    return best && { label: best.label, fn: best.fn };
+  }
+  return { get on() { return IN.on; }, scene: sc, enter, exit, update, action, build, IN };
+})();
+window.__inside = inside;
 
 // ───────────────────────── challenges: timed runs, checkpoint rush, landmark hunt ─────────────────────────
 const DISCOVER = [
@@ -5716,7 +5986,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyJ') chal.isOpen() ? chal.close() : chal.open();
   if (e.code === 'KeyT') { tod = (Math.floor(tod) + 1) % 24; applyTime(tod); toast(clockText()); }
   if (e.code === 'KeyM') bigMap.classList.contains('on') ? closeMap() : openMap();
-  if (e.code === 'KeyR') respawnOnRoad();
+  if (e.code === 'KeyR' && !inside.on) respawnOnRoad();
   if (e.code === 'KeyE' && !e.repeat && started && !paused) life.doAction();
   if (e.code === 'KeyP' && !e.repeat) phone.isOpen() ? phone.close() : (started && !paused && phone.open());
   if (e.code === 'Escape' && phone.isOpen()) phone.close();
@@ -5734,7 +6004,7 @@ document.querySelectorAll('[data-k]').forEach(el => {
 });
 $('btnCam').onclick = cycleCam;
 $('btnMap').onclick = openMap;
-$('btnReset').onclick = respawnOnRoad;
+$('btnReset').onclick = () => { if (!inside.on) respawnOnRoad(); };
 $('btnDoor').onclick = toggleFoot;
 // character picker (Golf Go roster)
 { const cs = $('optChar'); for (const [id, name] of CHAR_LIST) { const o = document.createElement('option'); o.value = id; o.textContent = name; cs.appendChild(o); }
@@ -5789,7 +6059,7 @@ $('startBtn').onclick = () => {
   started = true; paused = false; last = performance.now();
   $('hud').classList.add('on');
   setCar(); terrainizeScene(); life.hud();
-  if (LIFE_ON() && !LIFE.started) { LIFE.started = true; life.save(); setTimeout(() => toast(`You have ${money(LIFE.money)} and a 2009 sedan. Open your phone (📱 / P) to find work, rent an apartment or shop for cars.`), 1500); }
+  if (LIFE_ON() && !LIFE.started) { LIFE.started = true; life.save(); setTimeout(() => { toast(`You have ${money(LIFE.money)} and a 2009 sedan. First step: get a job.`); phone.open('jobs'); }, 1800); }
 };
 scene.fog.far = settings.radius > 1 ? 2600 : 1700; camera.far = scene.fog.far + 300; camera.updateProjectionMatrix();
 
@@ -5822,7 +6092,8 @@ function frame(now) {
   if (!paused) {
     // fixed sub-steps for stable physics
     clock.acc += dt; let steps = 0;
-    while (clock.acc > 1 / 120 && steps < 14) { info = S.mode === 'foot' ? physicsFoot(1 / 120) : physics(1 / 120); clock.acc -= 1 / 120; steps++; }
+    while (clock.acc > 1 / 120 && steps < 14 && !inside.on) { info = S.mode === 'foot' ? physicsFoot(1 / 120) : physics(1 / 120); clock.acc -= 1 / 120; steps++; }
+    if (inside.on) clock.acc = 0;
     if (!steps) info = { vf: S.vx * Math.sin(S.h) + S.vz * Math.cos(S.h), nr: nearestRoad(S.x, S.z, 40) };
   } else {
     if (!started) S.h += 0.0015; // slow orbit behind the title menu
@@ -5832,12 +6103,12 @@ function frame(now) {
   car.position.set(CP.x, CP.y, CP.z);
   car.rotation.set(-CP.pitch, CP.h, CP.groll, 'YXZ');
   TU.uCarP.value.set(CP.x, CP.z);
-  if (S.mode === 'foot') animateFoot(paused ? 0 : dt);
+  if (S.mode === 'foot' && !inside.on) animateFoot(paused ? 0 : dt);
   const body = car.userData.body; body.position.y = BODY_PIV + S.bh; body.rotation.set(-S.bp, 0, S.br);
   const w = car.userData.wheels;
   for (let i = 0; i < 4; i++) { w[i].rotation.x = S.wheelSpin; if (i < 2) w[i].rotation.y = -S.steer * 0.45; }
   ground.position.set(Math.round(S.x / 30) * 30, 0, Math.round(S.z / 30) * 30);
-  updateCamera(paused ? 0.016 : dt, info.vf);
+  if (inside.on) inside.update(paused ? 0 : dt); else updateCamera(paused ? 0.016 : dt, info.vf);
   if (started) updateFx(paused ? 0 : dt, info);
   if (started && !paused) traffic.update(dt);
   if ((tileCheck -= (paused ? 0.016 : dt)) <= 0) { tileCheck = 0.5; if (!bigMap.classList.contains('on')) wantTiles(S.x, S.z); }
@@ -5851,7 +6122,7 @@ function frame(now) {
   }
   if (pendingSnap && performance.now() - (pendingSnap.t || 0) > 500) trySnap();
   updateSignals(now);
-  renderer.render(scene, camera);
+  renderer.render(inside.on ? inside.scene : scene, camera);
 }
 window.__phys = (n, inp) => { Object.assign(input, inp || {}); const out = []; for (let i = 0; i < n; i++) { physics(1 / 120); if (i % 12 === 11) out.push(window.__tcd()); } return out; };
 window.__tr = () => traffic.cars.map(c => [c.road.c, c.lane, c.sig, c.brake ? 1 : 0, +c.v.toFixed(1), c.lc ? 1 : 0, +c.agg.toFixed(2), +c.x.toFixed(1), +c.z.toFixed(1), +c.h.toFixed(3), +c.y.toFixed(2)]);
