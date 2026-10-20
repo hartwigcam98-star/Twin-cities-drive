@@ -2,7 +2,7 @@
 
 A drivable 3D map of Minneapolis–St. Paul and the suburbs (Maple Grove and Plymouth to Woodbury, Brooklyn Park to Burnsville), built with three.js from OpenStreetMap streets and buildings and USGS lidar terrain.
 
-**Play:** https://hartwigcam98-star.github.io/twin-cities-drive/
+**Play:** https://hartwigcam98-star.github.io/Twin-cities-drive/
 
 - `index.html`, `game.js`, `convert.js`, `elevcore.js`, `vendor/` — the game (static, no server)
 - `data/` — baked map tiles (`r` streets, `b` buildings, `l` land use, `e` terrain, `m` region map)
