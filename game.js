@@ -960,10 +960,13 @@ function chimney(buf, pts, top, seed) {
 }
 function revRing(p) { const r = []; for (let i = p.length - 2; i >= 0; i -= 2) r.push(p[i], p[i + 1]); return r; }
 // does a street (or road tunnel) run through this footprint? (skyways, buildings built over a road)
-function spansRoad(t, pts, box) {
+function spansRoad(t0, pts, box) {
   const n = pts.length / 2;
+  // the street may belong to the neighbouring tile (buildings near a tile edge)
+  const grids = [t0.roadGrid]; for (const [, o] of tiles) if (o !== t0 && o.roadGrid && Math.abs(o.tx - t0.tx) <= 1 && Math.abs(o.ty - t0.ty) <= 1) grids.push(o.roadGrid);
+  for (const grid of grids)
   for (let cx = Math.floor(box[0] / CELL); cx <= Math.floor(box[2] / CELL); cx++) for (let cz = Math.floor(box[1] / CELL); cz <= Math.floor(box[3] / CELL); cz++) {
-    const a = t.roadGrid.get(ck(cx, cz)); if (!a) continue;
+    const a = grid.get(ck(cx, cz)); if (!a) continue;
     for (const ref of a) {
       const r = ref.road; if (r.c > 12 || r.sunk) continue; // ignore service roads and sunken freeways
       const q = r.pts, s = ref.s, ax = q[s * 2], az = q[s * 2 + 1], bx = q[s * 2 + 2], bz = q[s * 2 + 3];
@@ -2877,7 +2880,7 @@ function nearestRoad(x, z, maxD = 40) {
 }
 
 // building collision: push circle (x,z,rad) out of footprints
-function collideBuildings(pos, rad, withBerms = false) {
+function collideBuildings(pos, rad, withBerms = false, road = null) {
   let hit = null;
   const cx = Math.floor(pos.x / CELL), cz = Math.floor(pos.z / CELL);
   for (const t of tiles.values()) {
@@ -2888,6 +2891,8 @@ function collideBuildings(pos, rad, withBerms = false) {
         const [x0, z0, x1, z1] = b.box;
         if (pos.x < x0 - rad || pos.x > x1 + rad || pos.z < z0 - rad || pos.z > z1 + rad) continue;
         const p = b.pts, n = p.length / 2;
+        // a building standing over the street you're on (skyway, building bridging the road): drive under it
+        if (road && b.h > 2.5 && [-5, 0, 5].some(k => pointInPoly(road.px + road.dx * k, road.pz + road.dz * k, p))) continue;
         const inside = pointInPoly(pos.x, pos.z, p);
         let bd = 1e18, bx = 0, bz = 0;
         for (let i = 0; i < n; i++) {
@@ -3134,7 +3139,7 @@ function physics(dt) {
   }
   // collisions
   S.inTun = !!(surf && surf.road.tunnel && S.y < 3);
-  const hit = S.y < 2 ? collideBuildings(S, 2.1, !surf) : null;
+  const hit = S.y < 2 ? collideBuildings(S, 2.1, !surf, surf && !surf.road.tunnel && surf.d < surf.road.w / 2 + 0.5 ? surf : null) : null;
   if (hit) {
     const vn = S.vx * hit.nx + S.vz * hit.nz;
     if (vn < 0) { // glance off walls; only a head-on hit really costs speed
@@ -4765,6 +4770,7 @@ window.__tris = () => {
   scene.traverse(o => { if (!o.isMesh || !o.visible) return; let p = o; while (p) { if (!p.visible) return; p = p.parent; } const g = o.geometry; const tri = (g.index ? g.index.count : g.attributes.position.count) / 3 * (o.isInstancedMesh ? o.count : 1); const m = Array.isArray(o.material) ? o.material[0] : o.material; const n = o.userData.role || names.get(m) || (roadMats && [...roadMats.values()].includes(m) ? 'road' : m.type + (m.map ? '+map' : '')); out[n] = (out[n] || 0) + Math.round(tri); });
   return Object.fromEntries(Object.entries(out).sort((a, b) => b[1] - a[1]));
 };
+window.__tiles = tiles; window.__pip = pointInPoly; window.__unproj = unproj;
 window.__tcdSet = o => { Object.assign(S, o); camInit = false; };
 window.__tcd = () => ({ x: S.x, y: S.y, z: S.z, h: S.h, v: Math.hypot(S.vx, S.vz), pitch: S.pitch, drift: S.drift, charge: S.charge, nitro: S.nitro, burst: S.burst, bp: S.bp, br: S.br, bh: S.bh, yawR: S.yawR, scrub: S.scrub, aL: S.aL, rumble: S.rumble, groll: S.groll, raised: [...tiles.values()].reduce((n, t) => n + (t.raisedB || 0), 0) });
 requestAnimationFrame(frame);
