@@ -6,7 +6,7 @@ on:
     paths: ['tools/bake.mjs', '.github/workflows/bake.yml']
   workflow_dispatch:
     inputs:
-      minutes: { description: 'Minutes to spend baking', default: '45' }
+      minutes: { description: 'Minutes to spend baking', default: '50' }
   schedule:
     - cron: '17 */3 * * *' # every 3 hours until the map is complete (runs are quick no-ops after that)
 permissions:
@@ -15,7 +15,7 @@ concurrency: { group: bake, cancel-in-progress: false }
 jobs:
   bake:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,7 +23,7 @@ jobs:
       - name: Bake tiles
         run: node tools/bake.mjs
         env:
-          BAKE_MINUTES: ${{ github.event.inputs.minutes || '45' }}
+          BAKE_MINUTES: ${{ github.event.inputs.minutes || '50' }}
       - name: Commit new tiles
         run: |
           git config user.name "tile-baker"

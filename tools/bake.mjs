@@ -16,17 +16,20 @@ async function timed(url, opts = {}, ms = 90000) {
   try { return await fetch(url, { ...opts, signal: c.signal, headers: { 'User-Agent': 'twin-cities-drive tile baker (github.com/hartwigcam98-star/twin-cities-drive)', ...(opts.headers || {}) } }); }
   finally { clearTimeout(tm); }
 }
+let opFails = 0; // Overpass often refuses CI machines: after a few failures, go straight to the OSM API
 async function overpass(q) {
+  if (opFails >= 4) throw new Error('overpass skipped');
   let err;
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 3; i++) {
     const url = OVERPASS[turn % OVERPASS.length];
     try {
-      const r = await timed(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
-      if (r.ok) { const j = await r.json(); if (!(j.remark && /error|timed out|out of memory/i.test(j.remark))) return j; err = new Error('overpass remark ' + j.remark); }
+      const r = await timed(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }, 60000);
+      if (r.ok) { const j = await r.json(); if (!(j.remark && /error|timed out|out of memory/i.test(j.remark))) { opFails = 0; return j; } err = new Error('overpass remark ' + j.remark); }
       else err = new Error('overpass ' + r.status);
     } catch (e) { err = e; }
-    turn++; await sleep(5000 * (i + 1));
+    turn++; await sleep(3000 * (i + 1));
   }
+  opFails++;
   throw err;
 }
 const file = (k, name) => `data/${k}/${name}.json`;
@@ -41,24 +44,32 @@ let made = 0, failed = 0;
 for (let q = 0; q < 4 && KINDS.includes('r'); q++) if (!done('m', String(q)) && timeLeft() > 60e3) {
   try { save('m', String(q), convertMajor(await overpass(majorQuery(q)))); made++; console.log('m', q); } catch (e) { failed++; console.log('m', q, 'failed', e.message); }
 }
-for (const kind of KINDS) for (const [x, y] of tiles) {
+const log = [];
+const { tileBox } = await import('../convert.js');
+// terrain first (quick, one request a tile), then map data tile by tile, nearest downtown first
+if (KINDS.includes('e')) for (const [x, y] of tiles) {
   if (timeLeft() < 90e3) break;
-  const name = `${x}_${y}`; if (done(kind, name)) continue;
-  try {
-    let d;
-    if (kind === 'e') {
-      const r = await timed(elevUrl(x, y)); if (!r.ok) throw new Error('3dep ' + r.status);
-      d = processElev(x, y, await r.arrayBuffer());
-    } else {
-      try { d = convertTile(await overpass(overpassQuery(kind, x, y)), kind); }
-      catch (e) { // fall back to the main OSM API, which serves the raw map in small boxes
-        const { tileBox } = await import('../convert.js'), { s, n, w, e: ea } = tileBox(x, y);
-        d = convertTile(rawToElements(await fetchOsmApi(s, w, n, ea, url => timed(url, {}, 60000), 3)), kind);
+  const name = `${x}_${y}`; if (done('e', name)) continue;
+  try { const r = await timed(elevUrl(x, y)); if (!r.ok) throw new Error('3dep ' + r.status); save('e', name, processElev(x, y, await r.arrayBuffer())); made++; }
+  catch (e) { failed++; log.push(`e ${name} ${e.message}`); }
+}
+for (const [x, y] of tiles) {
+  if (timeLeft() < 120e3) break;
+  const name = `${x}_${y}`, need = KINDS.filter(k => k !== 'e' && !done(k, name)); if (!need.length) continue;
+  let raw = null; // one OSM API download serves all three layers
+  for (const kind of need) {
+    try {
+      let d;
+      try { d = convertTile(await overpass(overpassQuery(kind, x, y)), kind); await sleep(1500); }
+      catch (e) {
+        if (!raw) { const { s, n, w, e: ea } = tileBox(x, y); raw = rawToElements(await fetchOsmApi(s, w, n, ea, url => timed(url, {}, 60000), 3)); }
+        d = convertTile(raw, kind);
       }
-      await sleep(1500); // be gentle with the public Overpass servers
-    }
-    save(kind, name, d); made++; console.log(kind, name);
-  } catch (e) { failed++; console.log(kind, name, 'failed', e.message); }
+      save(kind, name, d); made++; console.log(kind, name);
+    } catch (e) { failed++; log.push(`${kind} ${name} ${e.message}`); console.log(kind, name, 'failed', e.message); }
+  }
 }
 const total = KINDS.reduce((n, k) => n + tiles.filter(([x, y]) => done(k, `${x}_${y}`)).length, 0);
-console.log(`baked ${made} files, ${failed} failed; ${total}/${tiles.length * KINDS.length} tiles done`);
+const summary = `${new Date().toISOString()} baked ${made} files, ${failed} failed; ${total}/${tiles.length * KINDS.length} tiles done`;
+console.log(summary);
+writeFileSync('data/bake-log.txt', [summary, ...log.slice(0, 200)].join('\n') + '\n'); // committed with the tiles so progress can be checked
