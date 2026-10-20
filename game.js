@@ -3209,6 +3209,210 @@ function addTrauma(a) { S.trauma = Math.min(1, S.trauma + a); }
 function buzz(ms) { try { if (settings.haptics !== false && navigator.vibrate) navigator.vibrate(ms); } catch {} }
 function bump(k = 0.5) { addTrauma(0.3 + k * 0.5); buzz(25 + k * 30); sfx.thud(k); S.bhV -= 0.4 * k; S.brV += (Math.random() - 0.5) * 1.6 * k; }
 
+// ───────────────────────── on foot: your character (Golf Go's motion-captured roster) ─────────────────────────
+// Bodies come from chars/<id>.js (R3CHAR format: Mixamo skeleton, quantised mesh, texture); the animation clips live in
+// chars/boss.js and are retargeted onto each body once. Get out of the car with F (or the door button) and walk, run
+// and jump around; the car stays parked where you left it.
+const CHAR_LIST = [['boss', 'The Boss'], ['ch01', 'Gary'], ['ch08', 'Marco'], ['ch12', 'Jordan'], ['ch17', 'Mack'], ['ch23', 'Preston'], ['ch24', 'Shadow'],
+  ['ch28', 'Andre'], ['ch31', 'Nina'], ['ch39', 'Master Ko'], ['ch42', 'Danny'], ['ch06', 'Dex'], ['ch09', 'Scout'], ['ch43', 'El Chupacabra'], ['remy', 'Remy'],
+  ['ty', 'Ty'], ['vegas', 'Big Vegas'], ['peasant', 'Farmer Hob'], ['granny', 'Coach Dot'], ['brute', 'Brick']];
+const charData = {}, charWaiters = {};
+let BOSS = null;
+window.R3CHAR = D => { charData[D.id] = D; (charWaiters[D.id] || []).splice(0).forEach(f => f(D)); };
+window.R3CHAR_BOSS = D => { BOSS = D; charData.boss = D; (charWaiters.boss || []).splice(0).forEach(f => f(D)); };
+// the locomotion set (walk, run, jump, idle, turns, strafes) — Mixamo clips retargeted onto the Boss skeleton offline
+window.R3ANIMS = A => { charData.anims = A; (charWaiters.anims || []).splice(0).forEach(f => f(A)); };
+function loadCharFile(id) {
+  if (charData[id]) return Promise.resolve(charData[id]);
+  return new Promise((res, rej) => {
+    (charWaiters[id] = charWaiters[id] || []).push(res);
+    if (document.getElementById('chr_' + id)) return;
+    const sc = document.createElement('script'); sc.id = 'chr_' + id; sc.src = `chars/${id}.js?v=1`; sc.onerror = () => { sc.remove(); rej(new Error('char ' + id)); };
+    document.head.appendChild(sc);
+  });
+}
+const b64 = (str, T) => { const b = atob(str), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return new T(u.buffer); };
+// clips are stored for the Boss skeleton: rebuild them bone by bone for another body (same as Golf Go)
+function retarget(D) {
+  const T = THREE, B = BOSS, nbB = B.names.length, nb = D.names.length;
+  const rot = (inv, k) => { const m = new T.Matrix4().fromArray(inv, k * 16).transpose().invert(), q = new T.Quaternion(), p = new T.Vector3(); m.decompose(p, q, new T.Vector3()); return { q, p }; };
+  const iB = b64(B.inv, Float32Array), iC = b64(D.inv, Float32Array), RB = [], RC = [];
+  for (let k = 0; k < nbB; k++) RB.push(rot(iB, k)); for (let k = 0; k < nb; k++) RC.push(rot(iC, k));
+  const bI = Object.fromEntries(B.names.map((s, i) => [s, i])), map = D.names.map(s => bI[s] ?? -1);
+  const sc = RC[D.names.indexOf('Hips')].p.y / RB[bI.Hips].p.y;
+  const RBi = RB.map(r => r.q.clone().invert()), RCi = RC.map(r => r.q.clone().invert());
+  const out = {}, WB = [], WC = []; for (let k = 0; k < nbB; k++) WB.push(new T.Quaternion()); for (let k = 0; k < nb; k++) WC.push(new T.Quaternion());
+  const ql = new T.Quaternion(), tmp = new T.Quaternion();
+  for (const ck in B.clips) {
+    const c = B.clips[ck], Qa = b64(c.q, Int16Array), QS = b64(c.qs, Int16Array), H = b64(c.hip, Float32Array), na = c.anim.length, n = c.n;
+    const Q = new Int16Array(n * nb * 4), HC = new Float32Array(n * 3), qb = new Float32Array(nbB * 4);
+    for (let f = 0; f < n; f++) {
+      for (let k = 0; k < nbB * 4; k++) qb[k] = QS[k] / 32767;
+      for (let j = 0; j < na; j++) { const k = c.anim[j]; for (let e = 0; e < 4; e++) qb[k * 4 + e] = Qa[(f * na + j) * 4 + e] / 32767; }
+      for (let k = 0; k < nbB; k++) { ql.set(qb[k * 4], qb[k * 4 + 1], qb[k * 4 + 2], qb[k * 4 + 3]).normalize(); const p = B.parent[k]; if (p >= 0) WB[k].copy(WB[p]).multiply(ql); else WB[k].copy(ql); }
+      for (let k = 0; k < nb; k++) {
+        const p = D.parent[k], jb = map[k];
+        if (jb >= 0) WC[k].copy(WB[jb]).multiply(RBi[jb]).multiply(RC[k].q);
+        else if (p >= 0) WC[k].copy(WC[p]).multiply(RCi[p]).multiply(RC[k].q); else WC[k].copy(RC[k].q);
+        if (p >= 0) tmp.copy(WC[p]).invert().multiply(WC[k]); else tmp.copy(WC[k]);
+        const o = (f * nb + k) * 4; Q[o] = Math.round(tmp.x * 32767); Q[o + 1] = Math.round(tmp.y * 32767); Q[o + 2] = Math.round(tmp.z * 32767); Q[o + 3] = Math.round(tmp.w * 32767);
+      }
+      for (let e = 0; e < 3; e++) HC[f * 3 + e] = H[f * 3 + e] * sc;
+    }
+    for (let f = 1; f < n; f++) for (let k = 0; k < nb; k++) { const a = (f * nb + k) * 4, b = ((f - 1) * nb + k) * 4; if (Q[a] * Q[b] + Q[a + 1] * Q[b + 1] + Q[a + 2] * Q[b + 2] + Q[a + 3] * Q[b + 3] < 0) for (let e = 0; e < 4; e++) Q[a + e] = -Q[a + e]; }
+    out[ck] = { ...c, anim: [...Array(nb).keys()], Q, QS: Q.slice(0, nb * 4), HIP: HC };
+  }
+  return out;
+}
+// a walking/running clip carries the body forward: keep the bob and sway but take the travel out (we move the root)
+function inPlace(c) {
+  const H = c.HIP, n = c.n; if (n < 2) return c;
+  const dx = (H[(n - 1) * 3] - H[0]) / (n - 1), dz = (H[(n - 1) * 3 + 2] - H[2]) / (n - 1);
+  const speed = Math.hypot(dx, dz) * c.fps * 0.0094; // metres per second the clip was captured at
+  const HIP = new Float32Array(H); for (let f = 0; f < n; f++) { HIP[f * 3] -= dx * f; HIP[f * 3 + 2] -= dz * f; }
+  return { ...c, HIP, speed };
+}
+function buildFigure(D, id) {
+  const T = THREE, nb = D.names.length, lt = b64(D.lt, Float32Array), inv = b64(D.inv, Float32Array);
+  const bones = []; for (let k = 0; k < nb; k++) { const b = new T.Bone(); b.name = D.names[k]; b.position.set(lt[k * 3], lt[k * 3 + 1], lt[k * 3 + 2]); bones.push(b); if (D.parent[k] >= 0) bones[D.parent[k]].add(b); }
+  const root = new T.Group(); root.add(bones[0]); root.scale.setScalar(0.0094);
+  const invs = []; for (let k = 0; k < nb; k++) { const m = new T.Matrix4(); m.fromArray(inv, k * 16); m.transpose(); invs.push(m); }
+  const M = D.mesh, n = M.n, pq = b64(M.p, Uint16Array), pos = new Float32Array(n * 3);
+  for (let i = 0; i < n * 3; i++) { const a = i % 3; pos[i] = M.lo[a] + pq[i] / 65535 * (M.hi[a] - M.lo[a]); }
+  const g = new T.BufferGeometry(); g.setAttribute('position', new T.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new T.BufferAttribute(b64(M.nr, Int8Array), 3, true));
+  const uq = b64(M.uv, Uint16Array), uv = new Float32Array(n * 2); for (let i = 0; i < n * 2; i++) uv[i] = uq[i] / 65535; g.setAttribute('uv', new T.BufferAttribute(uv, 2));
+  const si = b64(M.si, Uint8Array), si16 = new Uint16Array(si.length); si16.set(si); g.setAttribute('skinIndex', new T.BufferAttribute(si16, 4));
+  g.setAttribute('skinWeight', new T.BufferAttribute(b64(M.sw, Uint8Array), 4, true));
+  g.setIndex(new T.BufferAttribute(M.i32 ? b64(M.idx, Uint32Array) : b64(M.idx, Uint16Array), 1));
+  const im = new Image(), map = new T.Texture(im); map.colorSpace = T.SRGBColorSpace; im.onload = () => { map.needsUpdate = true; }; im.src = D.tex.d;
+  const mat = new T.MeshLambertMaterial({ map, alphaTest: D.alpha ? 0.5 : 0, side: D.alpha ? T.DoubleSide : T.FrontSide });
+  mat.userData.terr = true; // the figure is placed on the ground in JS, not lifted per vertex
+  const mesh = new T.SkinnedMesh(g, mat); mesh.frustumCulled = false; mesh.castShadow = true; mesh.receiveShadow = true; mesh.userData.shadowSet = true; mesh.userData.terrBS = true;
+  mesh.bind(new T.Skeleton(bones, invs), new T.Matrix4());
+  const grp = new T.Group(); grp.add(root, mesh); grp.visible = false; scene.add(grp);
+  const raw = id === 'boss' ? null : retarget(D), clips = {};
+  for (const k in BOSS.clips) { const c = raw ? raw[k] : BOSS.clips[k]; const cc = { ...c, Q: c.Q || b64(c.q, Int16Array), QS: c.QS || b64(c.qs, Int16Array), HIP: c.HIP || b64(c.hip, Float32Array), na: c.anim.length }; clips[k] = /run|strut|walk|jog|strafe/.test(k) ? inPlace(cc) : cc; }
+  return { grp, root, mesh, mat, bones, clips, nb, qa: new Float32Array(nb * 4), ha: [0, 0, 0], qb: new Float32Array(nb * 4), hb: [0, 0, 0], pv: new Float32Array(4) };
+}
+function posePlay(F, c, t, q, h) { // sample clip c at time t (seconds, looping) into q/h
+  const L = (c.n - 1) / c.fps, tt = ((t % L) + L) % L, f = Math.min(c.n - 1, tt * c.fps), i0 = Math.floor(f), i1 = Math.min(c.n - 1, i0 + 1), a = f - i0;
+  for (let k = 0; k < F.nb * 4; k++) q[k] = c.QS[k] / 32767;
+  const v = F.pv;
+  for (let j = 0; j < c.na; j++) {
+    const k = c.anim[j], o0 = (i0 * c.na + j) * 4, o1 = (i1 * c.na + j) * 4; let l = 0;
+    for (let e = 0; e < 4; e++) { v[e] = (c.Q[o0 + e] * (1 - a) + c.Q[o1 + e] * a) / 32767; l += v[e] * v[e]; }
+    l = Math.sqrt(l) || 1; for (let e = 0; e < 4; e++) q[k * 4 + e] = v[e] / l;
+  }
+  for (let e = 0; e < 3; e++) h[e] = c.HIP[i0 * 3 + e] * (1 - a) + c.HIP[i1 * 3 + e] * a;
+}
+function poseBlend(F, qa, ha, qb, hb, w) {
+  if (w <= 0) return; if (w >= 1) { qa.set(qb); ha[0] = hb[0]; ha[1] = hb[1]; ha[2] = hb[2]; return; }
+  for (let k = 0; k < F.nb; k++) {
+    let d = 0; for (let e = 0; e < 4; e++) d += qa[k * 4 + e] * qb[k * 4 + e]; const sg = d < 0 ? -1 : 1; let l = 0;
+    for (let e = 0; e < 4; e++) { qa[k * 4 + e] = qa[k * 4 + e] * (1 - w) + qb[k * 4 + e] * sg * w; l += qa[k * 4 + e] ** 2; }
+    l = Math.sqrt(l) || 1; for (let e = 0; e < 4; e++) qa[k * 4 + e] /= l;
+  }
+  for (let e = 0; e < 3; e++) ha[e] = ha[e] * (1 - w) + hb[e] * w;
+}
+const ME = { fig: null, id: null, loading: null, t: 0, gait: 0, air: 0, car: null };
+async function useCharacter(id) {
+  if (ME.id === id && ME.fig) return ME.fig;
+  if (ME.loading && ME.loading.id === id) return ME.loading.p;
+  const p = (async () => {
+    await loadCharFile('boss');
+    if (!BOSS.clips.walk) { const A = await loadCharFile('anims').catch(() => null); if (A) Object.assign(BOSS.clips, A); }
+    const D = await loadCharFile(id);
+    const F = buildFigure(D, id);
+    if (ME.fig) { scene.remove(ME.fig.grp); ME.fig.mesh.geometry.dispose(); ME.fig.mat.map.dispose(); ME.fig.mat.dispose(); }
+    ME.fig = F; ME.id = id; F.grp.visible = S.mode === 'foot';
+    return F;
+  })();
+  ME.loading = { id, p }; p.finally(() => { if (ME.loading && ME.loading.p === p) ME.loading = null; });
+  return p;
+}
+// ── getting in and out ──
+const PARKED = { x: 0, y: 0, z: 0, h: 0, pitch: 0, groll: 0 };
+async function toggleFoot() {
+  if (!started || paused) return;
+  if (S.mode !== 'foot') {
+    if (Math.hypot(S.vx, S.vz) > 4) { toast('Slow down to get out'); return; }
+    const F = await useCharacter(settings.char || 'ch01').catch(() => null);
+    if (!F) { toast("Couldn't load your character"); return; }
+    Object.assign(PARKED, { x: S.x, y: S.y, z: S.z, h: S.h, pitch: S.pitch, groll: S.groll });
+    // step out on the driver's side (the car's left), clear of the door
+    const lx = Math.cos(S.h), lz = -Math.sin(S.h);
+    S.bh = S.br = S.bp = S.vib = 0; S.rumble = 0; S.scrub = 0;
+    S.mode = 'foot'; S.x += lx * 1.7; S.z += lz * 1.7; S.vx = S.vz = 0; S.vy = 0; S.drift = 0; S.boosting = false; S.pitch = 0; S.groll = 0;
+    F.grp.visible = true; document.body.classList.add('onfoot'); camInit = false;
+  } else {
+    if (Math.hypot(S.x - PARKED.x, S.z - PARKED.z) > 4 || Math.abs(S.y - PARKED.y) > 2) { toast('Walk up to your car to get in'); return; }
+    S.mode = 'car'; Object.assign(S, { x: PARKED.x, y: PARKED.y, z: PARKED.z, h: PARKED.h, pitch: PARKED.pitch, groll: PARKED.groll, vx: 0, vz: 0, vy: 0, yawR: 0, vfPrev: 0 });
+    if (ME.fig) ME.fig.grp.visible = false; document.body.classList.remove('onfoot'); camInit = false;
+  }
+  sfx.door && sfx.door();
+}
+// ── walking, running, jumping ──
+const FOOT = { jog: 4.6, sprint: 7.2, back: 1.3, turn: 2.8, jump: 4.6 };
+function physicsFoot(dt) {
+  const steer = input.right - input.left, fwd = input.up - input.down;
+  S.h -= steer * FOOT.turn * dt * (fwd < 0 ? -1 : 1);
+  const sprint = input.boost && fwd > 0, want = fwd > 0 ? (sprint ? FOOT.sprint : FOOT.jog) : fwd < 0 ? -FOOT.back : 0;
+  const fx = Math.sin(S.h), fz = Math.cos(S.h);
+  let v = S.vx * fx + S.vz * fz;
+  const air = S.y > (S.groundH ?? 0) + 0.05;
+  v += Math.max(-14 * dt, Math.min((air ? 3 : 12) * dt, want - v));
+  S.vx = fx * v; S.vz = fz * v;
+  const ox = S.x, oz = S.z;
+  S.x += S.vx * dt; S.z += S.vz * dt;
+  // ground: road decks and bridges where there are some, the terrain everywhere else
+  const surf = surfaceAt(S.x, S.z, S.y + 0.6), g = surf ? surf.h : 0; S.groundH = g;
+  if (input.brake && !air && !ME.jumpHeld) { S.vy = FOOT.jump; ME.jumpHeld = true; }
+  if (!input.brake) ME.jumpHeld = false;
+  if (S.y > g + 0.02 || S.vy > 0) { S.vy -= 18 * dt; S.y += S.vy * dt; if (S.y <= g) { S.y = g; if (S.vy < -9) bump(0.3); S.vy = 0; } }
+  else if (g - S.y < 0.6) { S.y = g; S.vy = 0; } // steps and kerbs
+  else { S.x = ox; S.z = oz; S.vx = S.vz = 0; } // too high to step up (a bridge deck from below)
+  const hit = collideBuildings(S, 0.35, !surf);
+  if (hit) { const vn = S.vx * hit.nx + S.vz * hit.nz; if (vn < 0) { S.vx -= vn * hit.nx; S.vz -= vn * hit.nz; } }
+  // your parked car is solid too
+  { const cx = Math.cos(PARKED.h), cz = -Math.sin(PARKED.h), fx2 = Math.sin(PARKED.h), fz2 = Math.cos(PARKED.h), rx = S.x - PARKED.x, rz = S.z - PARKED.z;
+    const al = rx * fx2 + rz * fz2, sd = rx * cx + rz * cz, pa = 2.45 - Math.abs(al), ps = 1.25 - Math.abs(sd);
+    if (pa > 0 && ps > 0 && Math.abs(S.y - PARKED.y) < 1.4) { if (ps < pa) { S.x += cx * Math.sign(sd || 1) * ps; S.z += cz * Math.sign(sd || 1) * ps; } else { S.x += fx2 * Math.sign(al || 1) * pa; S.z += fz2 * Math.sign(al || 1) * pa; } } }
+  if (S.y < 3 + g) traffic.collide(S, true);
+  if (S.x < MINX + 5 || S.x > MAXX - 5 || S.z < MINZ + 5 || S.z > MAXZ - 5) { S.x = Math.min(MAXX - 5, Math.max(MINX + 5, S.x)); S.z = Math.min(MAXZ - 5, Math.max(MINZ + 5, S.z)); }
+  S.inTun = !!(surf && surf.road.tunnel && S.y < 3);
+  const nr = surf || nearestRoad(S.x, S.z, 40);
+  return { vf: v, nr, onRoad: !!surf, slide: 0 };
+}
+function animateFoot(dt) {
+  const near = Math.hypot(S.x - PARKED.x, S.z - PARKED.z) < 4;
+  if (near !== ME.near) { ME.near = near; $('doorHint').classList.toggle('on', near); }
+  const F = ME.fig; if (!F) return;
+  const v = S.vx * Math.sin(S.h) + S.vz * Math.cos(S.h), sp = Math.abs(v), air = S.y > (S.groundH ?? 0) + 0.15;
+  const C = F.clips, walk = C.walk || C.strut, run = C.run || C.fastrun, sprint = C.fastrun || run;
+  // gait: 0 idle → 1 walk → 2 run → 3 sprint; each clip plays at the rate that matches your speed so the feet don't slide
+  const target = sp < 0.15 ? 0 : sp < 2.4 ? 1 : sp < 5.6 ? 2 : 3;
+  ME.gait += (target - ME.gait) * Math.min(1, dt * 7);
+  ME.t += dt;
+  const ref = ME.gait > 2.5 ? sprint : ME.gait > 1.5 ? run : walk;
+  ME.phase = (ME.phase || 0) + dt * (sp > 0.15 ? sp / Math.max(0.5, ref.speed || 1) : 1) * Math.sign(v || 1); // in cycles
+  const cyc = c => ME.phase * ((c.n - 1) / c.fps);
+  posePlay(F, C.idle, ME.t, F.qa, F.ha);
+  if (ME.gait > 0.01) { posePlay(F, walk, cyc(walk), F.qb, F.hb); poseBlend(F, F.qa, F.ha, F.qb, F.hb, Math.min(1, ME.gait)); }
+  if (ME.gait > 1.01) { posePlay(F, run, cyc(run), F.qb, F.hb); poseBlend(F, F.qa, F.ha, F.qb, F.hb, Math.min(1, ME.gait - 1)); }
+  if (ME.gait > 2.01) { posePlay(F, sprint, cyc(sprint), F.qb, F.hb); poseBlend(F, F.qa, F.ha, F.qb, F.hb, Math.min(1, ME.gait - 2)); }
+  // jump: the clip's airborne part (takeoff ~0.75 s, landing ~1.35 s) stretched over the time you're in the air
+  if (air) ME.airT = (ME.airT || 0) + dt; else if (ME.airT) { ME.landT = 0.3; ME.airT = 0; }
+  if (C.jump && (air || ME.landT > 0)) {
+    const jt = air ? 0.72 + Math.min(1, ME.airT / 0.55) * 0.6 : 1.35 + (0.3 - ME.landT) * 0.8;
+    posePlay(F, C.jump, jt, F.qb, F.hb); poseBlend(F, F.qa, F.ha, F.qb, F.hb, air ? Math.min(1, ME.airT * 8) : ME.landT / 0.3);
+    if (!air) ME.landT -= dt;
+  }
+  const B = F.bones; for (let k = 0; k < F.nb; k++) B[k].quaternion.set(F.qa[k * 4], F.qa[k * 4 + 1], F.qa[k * 4 + 2], F.qa[k * 4 + 3]);
+  B[0].position.set(F.ha[0], F.ha[1], F.ha[2]);
+  F.root.position.set(S.x, S.y + terrainAt(S.x, S.z), S.z); F.root.rotation.set(0, S.h, 0);
+}
+
 // ───────────────────────── camera ─────────────────────────
 const CAM_MODES = ['Chase', 'Far chase', 'Hood', 'Overhead'];
 let camMode = 0;
@@ -3221,14 +3425,16 @@ function updateCamera(dt, vf) {
   const spd = Math.hypot(S.vx, S.vz), sp = Math.min(1, spd / C.top);
   boostE += ((S.boosting ? 1 : 0) - boostE) * Math.min(1, dt * 3);
   // chase cams swing toward the direction of travel, so a drift shows the car sideways
-  const vh = spd > 4 && vf > 0 ? Math.atan2(S.vx, S.vz) : S.h;
+  const foot = S.mode === 'foot';
+  const vh = !foot && spd > 4 && vf > 0 ? Math.atan2(S.vx, S.vz) : S.h;
   const wantH = S.h + angDiff(vh, S.h) * 0.65;
   if (camHd === null || !camInit) camHd = wantH;
   camHd += angDiff(wantH, camHd) * Math.min(1, dt * 5);
   const fx = Math.sin(S.h), fz = Math.cos(S.h), cx = Math.sin(camHd), cz = Math.cos(camHd);
   let px, py, pz, lx, ly, lz;
   const lag = Math.max(-0.7, Math.min(0.9, S.aL * 0.045)); // camera hangs back under acceleration, closes in under braking
-  if (camMode === 0) { const d = 7.4 + sp * 4 + boostE * 1.6 + lag; px = S.x - cx * d; pz = S.z - cz * d; py = 3.0 + sp * 1.1; lx = S.x + cx * 6; lz = S.z + cz * 6; ly = 1.3; }
+  if (foot && camMode !== 3) { const d = camMode === 1 ? 7 : camMode === 2 ? 2.2 : 4.3; px = S.x - cx * d; pz = S.z - cz * d; py = camMode === 1 ? 3.6 : 2.15; lx = S.x + cx * 4; lz = S.z + cz * 4; ly = 1.35; }
+  else if (camMode === 0) { const d = 7.4 + sp * 4 + boostE * 1.6 + lag; px = S.x - cx * d; pz = S.z - cz * d; py = 3.0 + sp * 1.1; lx = S.x + cx * 6; lz = S.z + cz * 6; ly = 1.3; }
   else if (camMode === 1) { const d = 18 + sp * 7 + boostE * 2; px = S.x - cx * d; pz = S.z - cz * d; py = 8 + sp * 3; lx = S.x + cx * 10; lz = S.z + cz * 10; ly = 1; }
   else if (camMode === 2) { px = S.x + fx * 0.6; pz = S.z + fz * 0.6; py = 1.55; lx = S.x + fx * 30; lz = S.z + fz * 30; ly = 1.3 + S.bh + Math.tan(S.pitch + S.bp) * 30; }
   else { px = S.x - fx * 2; pz = S.z - fz * 2; py = 90 + sp * 60; lx = S.x + fx * 3; lz = S.z + fz * 3; ly = 0; }
@@ -3253,7 +3459,8 @@ function updateCamera(dt, vf) {
   camera.rotation.z += shakeN(t, 3) * 0.035 * amt + (camMode === 2 ? S.br + S.groll : camMode === 3 ? 0 : S.br * 0.3);
   const wantFov = camMode === 3 ? 62 : 60 + 15 * sp + 10 * boostE;
   if (Math.abs(wantFov - fovE) > 0.05) { fovE += (wantFov - fovE) * Math.min(1, dt * 4); camera.fov = fovE; camera.updateProjectionMatrix(); }
-  car.visible = camMode !== 2;
+  car.visible = camMode !== 2 || S.mode === 'foot';
+  if (ME.fig) ME.fig.grp.visible = S.mode === 'foot' && camMode !== 2;
 }
 
 // ───────────────────────── game feel: smoke, sparks, skid marks, flames, speed lines, sound ─────────────────────────
@@ -3308,7 +3515,7 @@ function updateFx(dt, info) {
   const C = CARS[settings.car] || CARS.sport;
   const spd = Math.hypot(S.vx, S.vz), fx = Math.sin(S.h), fz = Math.cos(S.h), lx = Math.cos(S.h), lz = -Math.sin(S.h);
   const slip = Math.abs(info.slide || 0), burnout = S.throttle > 0 && spd < 6 && input.brake;
-  const sliding = !paused && S.y < 0.5 + (surfaceAt(S.x, S.z, S.y + 1)?.h || 0) && (S.drift || slip > 3.5 || burnout) && spd > 2;
+  const sliding = !paused && S.mode !== 'foot' && S.y < 0.5 + (surfaceAt(S.x, S.z, S.y + 1)?.h || 0) && (S.drift || slip > 3.5 || burnout) && spd > 2;
   // rear wheels in world space (car local +x points to the car's left)
   for (let w = 0; w < 2; w++) {
     const side = w ? 0.9 : -0.9, x = S.x + lx * side - fx * 1.38, z = S.z + lz * side - fz * 1.38, y = S.y + 0.09;
@@ -3347,7 +3554,7 @@ function updateFx(dt, info) {
     slCtx.stroke();
   }
   // spray off a wet road, powder off a snowy one
-  if (!paused && spd > 9 && (WX.wet.value > 0.25 || WX.snow.value > 0.3) && S.y < 0.5 + (surfaceAt(S.x, S.z, S.y + 1)?.h || 0)) {
+  if (!paused && S.mode !== 'foot' && spd > 9 && (WX.wet.value > 0.25 || WX.snow.value > 0.3) && S.y < 0.5 + (surfaceAt(S.x, S.z, S.y + 1)?.h || 0)) {
     const sn = WX.snow.value > WX.wet.value, col = sn ? [0.95, 0.96, 0.98] : [0.72, 0.75, 0.78];
     for (let w = 0; w < 2; w++) if (Math.random() < dt * 26 * Math.min(1, spd / 30)) {
       const side = w ? 0.9 : -0.9, x = S.x + lx * side - fx * 1.9, z = S.z + lz * side - fz * 1.9;
@@ -3418,7 +3625,7 @@ const sfx = (() => {
       const f = rpm / 60 * 2, now = ac.currentTime;
       eng.frequency.setTargetAtTime(f, now, 0.05); eng2.frequency.setTargetAtTime(f / 2, now, 0.05);
       lp.frequency.setTargetAtTime(500 + rpm * 0.35 + (S.throttle > 0 ? 500 : 0), now, 0.08);
-      eg.gain.setTargetAtTime(0.05 + (S.throttle > 0 ? 0.05 : 0) + Math.min(0.04, spd / 1500), now, 0.1);
+      eg.gain.setTargetAtTime(S.mode === 'foot' ? 0 : 0.05 + (S.throttle > 0 ? 0.05 : 0) + Math.min(0.04, spd / 1500), now, 0.1);
       sqg.gain.setTargetAtTime(sliding ? 0.09 : S.scrub > 0.15 ? 0.025 + 0.05 * S.scrub : 0, now, 0.06);
       rng.gain.setTargetAtTime(Math.min(0.13, spd / 380) * S.surfK * (1 + 0.6 * WX.wet.value) * (1 - 0.5 * WX.snow.value), now, 0.1);
       wxg.gain.setTargetAtTime(0.07 * WX.precip * (1 - WX.snowing), now, 0.3);
@@ -3804,17 +4011,21 @@ const traffic = (() => {
     if (lights.instanceColor) lights.instanceColor.needsUpdate = true;
   }
   // the player bumping into a car (box vs box, in the AI car's frame)
-  function collide(P) {
+  function collide(P, foot) {
     for (const c of cars) {
       if (Math.abs(c.y - P.y) > 2.5) continue;
       const rx = P.x - c.x, rz = P.z - c.z; if (rx * rx + rz * rz > 36) continue;
       const fx = Math.sin(c.h), fz = Math.cos(c.h), along = rx * fx + rz * fz, side = rx * fz - rz * fx; // side: + is the car's left
-      const pa = 4.4 - Math.abs(along), ps = 2.0 - Math.abs(side);
+      const pa = (foot ? 2.65 : 4.4) - Math.abs(along), ps = (foot ? 1.3 : 2.0) - Math.abs(side);
       if (pa <= 0 || ps <= 0) continue;
       let nx, nz, pen;
       if (ps < pa) { const sg = Math.sign(side) || 1; nx = fz * sg; nz = -fx * sg; pen = ps; } else { const sg = Math.sign(along) || 1; nx = fx * sg; nz = fz * sg; pen = pa; }
       P.x += nx * pen; P.z += nz * pen;
       const vn = P.vx * nx + P.vz * nz;
+      if (foot) { // knocked aside by a moving car
+        if (c.v > 3) { P.vx += nx * c.v * 0.5; P.vz += nz * c.v * 0.5; P.vy = Math.max(P.vy || 0, 2.5); bump(Math.min(1, c.v / 15)); }
+        c.v *= 0.2; c.hitT = 3; continue;
+      }
       if (vn < 0) { P.vx -= 1.3 * vn * nx; P.vz -= 1.3 * vn * nz; P.vx *= 0.8; P.vz *= 0.8; if (vn < -4) bump(Math.min(1, -vn / 20)); if (P.drift) endDrift(true); }
       c.v *= 0.3; c.hitT = 2.5;
     }
@@ -3825,6 +4036,7 @@ const traffic = (() => {
 // ───────────────────────── spawning / teleport ─────────────────────────
 let pendingSnap = null;
 function teleport(x, z, label) {
+  if (S.mode === 'foot') { S.mode = 'car'; if (ME.fig) ME.fig.grp.visible = false; document.body.classList.remove('onfoot'); } // your car comes with you
   S.x = x; S.z = z; S.vx = S.vz = 0; S.y = 0; S.vy = 0; camInit = false;
   pendingSnap = { x, z, t: performance.now() };
   if (label) toast(label);
@@ -4635,6 +4847,7 @@ const KEYS = { ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', Arrow
 addEventListener('keydown', e => {
   if (KEYS[e.code]) { if (KEYS[e.code] === 'brake' && !e.repeat) input.tap = performance.now(); input[KEYS[e.code]] = 1; e.preventDefault(); }
   if (e.code === 'KeyC') cycleCam();
+  if (e.code === 'KeyF' && !e.repeat) toggleFoot();
   if (e.code === 'KeyJ') chal.isOpen() ? chal.close() : chal.open();
   if (e.code === 'KeyT') { tod = (Math.floor(tod) + 1) % 24; applyTime(tod); toast(clockText()); }
   if (e.code === 'KeyM') bigMap.classList.contains('on') ? closeMap() : openMap();
@@ -4654,6 +4867,10 @@ document.querySelectorAll('[data-k]').forEach(el => {
 $('btnCam').onclick = cycleCam;
 $('btnMap').onclick = openMap;
 $('btnReset').onclick = respawnOnRoad;
+$('btnDoor').onclick = toggleFoot;
+// character picker (Golf Go roster)
+{ const cs = $('optChar'); for (const [id, name] of CHAR_LIST) { const o = document.createElement('option'); o.value = id; o.textContent = name; cs.appendChild(o); }
+  cs.value = settings.char || 'ch01'; cs.onchange = e => { settings.char = e.target.value; saveSettings(); if (S.mode === 'foot') useCharacter(settings.char); }; }
 $('btnMenu').onclick = () => { paused = true; sfx.pause(true); $('menu').classList.add('on'); $('startBtn').textContent = 'Resume'; };
 if (isTouch) document.body.classList.add('touch');
 
@@ -4729,15 +4946,17 @@ function frame(now) {
   if (!paused) {
     // fixed sub-steps for stable physics
     clock.acc += dt; let steps = 0;
-    while (clock.acc > 1 / 120 && steps < 14) { info = physics(1 / 120); clock.acc -= 1 / 120; steps++; }
+    while (clock.acc > 1 / 120 && steps < 14) { info = S.mode === 'foot' ? physicsFoot(1 / 120) : physics(1 / 120); clock.acc -= 1 / 120; steps++; }
     if (!steps) info = { vf: S.vx * Math.sin(S.h) + S.vz * Math.cos(S.h), nr: nearestRoad(S.x, S.z, 40) };
   } else {
     if (!started) S.h += 0.0015; // slow orbit behind the title menu
     info.nr = null;
   }
-  car.position.set(S.x, S.y, S.z);
-  car.rotation.set(-S.pitch, S.h, S.groll, 'YXZ');
-  TU.uCarP.value.set(S.x, S.z);
+  const CP = S.mode === 'foot' ? PARKED : S; // on foot the car stays where you left it
+  car.position.set(CP.x, CP.y, CP.z);
+  car.rotation.set(-CP.pitch, CP.h, CP.groll, 'YXZ');
+  TU.uCarP.value.set(CP.x, CP.z);
+  if (S.mode === 'foot') animateFoot(paused ? 0 : dt);
   const body = car.userData.body; body.position.y = BODY_PIV + S.bh; body.rotation.set(-S.bp, 0, S.br);
   const w = car.userData.wheels;
   for (let i = 0; i < 4; i++) { w[i].rotation.x = S.wheelSpin; if (i < 2) w[i].rotation.y = -S.steer * 0.45; }
