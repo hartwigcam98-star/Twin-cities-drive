@@ -87,6 +87,8 @@ function vType() { if (LIFE_ON() && (LIFE.jobCar || LIFE.hot)) return (LIFE.jobC
 function vColor() { if (LIFE_ON() && (LIFE.jobCar || LIFE.hot)) return (LIFE.jobCar || LIFE.hot).color; const c = LIFE_ON() && LIFE.cars[LIFE.active]; return c ? c.color : settings.color; }
 // graphics: "light" (default on phones) trims roadside clutter, trees and fine detail so the game fits in a phone's memory
 const LOW = (settings.gfx || (isTouch ? 'low' : 'high')) === 'low';
+// how far you can see: the fog closes in sooner on phones, and the chunks past it aren't drawn
+const viewFar = () => settings.radius > 1 ? 2600 : LOW ? 1250 : 1700;
 const saveSettings = () => { try { localStorage.setItem('tcd-settings', JSON.stringify(settings)); } catch {} };
 
 // ───────────────────────── renderer / scene ─────────────────────────
@@ -321,7 +323,7 @@ function applyTime(h) {
     sky.material.uniforms.hor.value.copy(SKY); scene.fog.color.copy(SKY); hemi.color.lerp(SKY, 0.4 * cl);
   }
   sky.material.uniforms.cloud.value = cl;
-  const fogFar = settings.radius > 1 ? 2600 : 1700;
+  const fogFar = viewFar();
   scene.fog.far = fogFar * (1 - pr * (0.55 + 0.2 * WX.snowing)); scene.fog.near = 300 * (1 - pr * 0.8);
   // the shadow-casting light: the sun by day, the moon once the sun is down (kept above ~7° so shadows stay sane)
   SUN_DIR.copy(e > -0.03 ? sunD : MOON_DIR); if (SUN_DIR.y < 0.12) { SUN_DIR.y = 0.12; SUN_DIR.normalize(); }
@@ -414,7 +416,7 @@ function terrainizeScene() {
     if (o.material) { if (Array.isArray(o.material)) o.material.forEach(terrainize); else terrainize(o.material); }
     if ((o.isMesh || o.isPoints) && !o.userData.terrBS) {
       o.userData.terrBS = true;
-      if (o.isInstancedMesh) o.frustumCulled = false;
+      if (o.isInstancedMesh && !o.userData.cull) o.frustumCulled = false;
       else if (o.geometry && !o.geometry.userData.terrBS) { o.geometry.userData.terrBS = true; if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere(); if (o.geometry.boundingSphere) o.geometry.boundingSphere.radius += 90; }
     }
   });
@@ -577,11 +579,49 @@ function freeAfterUpload(g) {
   for (const k in g.attributes) g.attributes[k].onUpload(free);
   if (g.index) g.index.onUpload(free);
 }
+const CHUNK = 500;
+// a tile-wide mesh cut into chunks: behaves like one mesh for the code that builds and frees tiles
+class ChunkGroup extends THREE.Group {
+  constructor(meshes, mat) {
+    super(); this.material = mat; this.matrixAutoUpdate = false;
+    for (const m of meshes) this.add(m);
+    this.geometry = { dispose: () => { for (const c of this.children) c.geometry.dispose(); } };
+  }
+}
 class GeoBuf {
   constructor() { this.p = []; this.uv = []; this.n = []; this.i = []; this.c = []; this.cl = []; }
   get vc() { return this.p.length / 3; }
   mesh(mat, withColor) {
     if (!this.i.length) return null;
+    // big tile-wide meshes are cut into ~500 m chunks, so whatever is off-screen (or past the fog) isn't drawn at all
+    if (!this.noChunk && this.i.length > 9000) { const g = this.chunked(mat, withColor); if (g) return g; }
+    return this.single(mat, withColor);
+  }
+  chunked(mat, withColor) {
+    const P = this.p, I = this.i, buckets = new Map();
+    for (let t = 0; t < I.length; t += 3) {
+      const a = I[t] * 3, b = I[t + 1] * 3, c = I[t + 2] * 3;
+      const k = Math.floor((P[a] + P[b] + P[c]) / 3 / CHUNK) * 4096 + Math.floor((P[a + 2] + P[b + 2] + P[c + 2]) / 3 / CHUNK);
+      let L = buckets.get(k); if (!L) buckets.set(k, L = []); L.push(I[t], I[t + 1], I[t + 2]);
+    }
+    if (buckets.size < 2) return null;
+    const meshes = [], map = new Int32Array(this.vc);
+    for (const L of buckets.values()) {
+      map.fill(-1); const sub = new GeoBuf();
+      for (const v of L) {
+        if (map[v] < 0) {
+          map[v] = sub.vc; sub.p.push(P[v * 3], P[v * 3 + 1], P[v * 3 + 2]); sub.n.push(this.n[v * 3], this.n[v * 3 + 1], this.n[v * 3 + 2]);
+          if (this.uv.length) sub.uv.push(this.uv[v * 2], this.uv[v * 2 + 1]);
+          if (withColor) sub.c.push(this.c[v * 3], this.c[v * 3 + 1], this.c[v * 3 + 2]);
+          if (this.cl.length) sub.cl.push(this.cl[v]);
+        }
+        sub.i.push(map[v]);
+      }
+      meshes.push(sub.single(mat, withColor));
+    }
+    return new ChunkGroup(meshes, mat);
+  }
+  single(mat, withColor) {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(this.n, 3));
@@ -2833,18 +2873,21 @@ function plantTrees(t) {
   }
   for (let i = spots.length - 3; i >= 0; i -= 3) if (inBallpark(spots[i], spots[i + 1])) spots.splice(i, 3);
   const n = spots.length / 3; if (!n) return;
-  const trunks = new THREE.InstancedMesh(treeGeoTrunk, treeMatTrunk, n);
-  const tops = new THREE.InstancedMesh(treeGeoTop, treeMatTop, n);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(), p = new THREE.Vector3();
   const greens = ['#4d7a3a', '#5c8a3f', '#3f6b33', '#6b8f45', '#567d3c'];
-  for (let i = 0; i < n; i++) {
-    const r = spots[i * 3 + 2], sc = 0.75 + r * 0.8;
-    p.set(spots[i * 3], 0, spots[i * 3 + 1]); s.set(sc, sc * (0.9 + r * 0.4), sc); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r * 6.28);
-    m.compose(p, q, s); trunks.setMatrixAt(i, m); tops.setMatrixAt(i, m);
-    tops.setColorAt(i, tmpC.set(greens[Math.floor(r * 97) % greens.length]));
+  const buckets = new Map();
+  for (let i = 0; i < n; i++) { const k = Math.floor(spots[i * 3] / CHUNK) * 4096 + Math.floor(spots[i * 3 + 1] / CHUNK); let L = buckets.get(k); if (!L) buckets.set(k, L = []); L.push(i); }
+  for (const L of buckets.values()) {
+    const trunks = new THREE.InstancedMesh(treeGeoTrunk, treeMatTrunk, L.length), tops = new THREE.InstancedMesh(treeGeoTop, treeMatTop, L.length);
+    L.forEach((i, j) => {
+      const r = spots[i * 3 + 2], sc = 0.75 + r * 0.8;
+      p.set(spots[i * 3], 0, spots[i * 3 + 1]); s.set(sc, sc * (0.9 + r * 0.4), sc); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), r * 6.28);
+      m.compose(p, q, s); trunks.setMatrixAt(j, m); tops.setMatrixAt(j, m);
+      tops.setColorAt(j, tmpC.set(greens[Math.floor(r * 97) % greens.length]));
+    });
+    for (const o of [trunks, tops]) { o.computeBoundingSphere(); o.boundingSphere.radius += 90; o.userData.cull = true; t.group.add(o); }
   }
   t.trees = spots;
-  t.group.add(trunks, tops);
 }
 
 function pointInPoly(x, z, pts) {
@@ -7170,7 +7213,7 @@ if (STATIC) $('optIssues').closest('label').style.display = 'none'; // no shared
 $('optIssues').onchange = e => { settings.showIssues = e.target.checked; saveSettings(); if (settings.showIssues) loadIssues(); };
 $('optSound').onchange = e => { settings.sound = e.target.checked; saveSettings(); sfx.setOn(settings.sound); };
 $('optAuto').onchange = e => { settings.autoGas = e.target.checked; saveSettings(); };
-$('optRadius').onchange = e => { settings.radius = +e.target.value; saveSettings(); scene.fog.far = settings.radius > 1 ? 2600 : 1700; camera.far = scene.fog.far + 300; camera.updateProjectionMatrix(); };
+$('optRadius').onchange = e => { settings.radius = +e.target.value; saveSettings(); scene.fog.far = viewFar(); camera.far = scene.fog.far + 300; camera.updateProjectionMatrix(); };
 $('optBld').onchange = e => { settings.buildings = e.target.checked; saveSettings(); reloadAll(); };
 $('optTrees').onchange = e => { settings.trees = e.target.checked; saveSettings(); reloadAll(); };
 $('optPeds').checked = settings.peds !== false; $('optPeds').onchange = e => { settings.peds = e.target.checked; saveSettings(); };
@@ -7191,7 +7234,7 @@ $('startBtn').onclick = () => {
   setCar(); terrainizeScene(); life.hud();
   if (LIFE_ON() && !LIFE.started) { LIFE.started = true; life.save(); setTimeout(() => { toast(`You have ${money(LIFE.money)} and a 2009 sedan. First step: get a job.`); phone.open('jobs'); }, 1800); }
 };
-scene.fog.far = settings.radius > 1 ? 2600 : 1700; camera.far = scene.fog.far + 300; camera.updateProjectionMatrix();
+scene.fog.far = viewFar(); camera.far = scene.fog.far + 300; camera.updateProjectionMatrix();
 
 // ───────────────────────── loop ─────────────────────────
 let last = performance.now(), tileCheck = 0;

@@ -532,12 +532,12 @@
 
 <script>
 // GitHub Pages lets browsers keep this page for up to 10 minutes: check for a newer build and load it right away
-window.TCD_BUILD = 50;
+window.TCD_BUILD = 51;
 fetch('version.txt?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.text() : '').then(v => {
   v = parseInt(v); if (v > window.TCD_BUILD && !new URLSearchParams(location.search).has('b' + v)) location.replace(location.pathname + '?b' + v + location.hash);
 }).catch(() => {});
 </script>
 <script>window.TCD_STATIC = true;</script>
-<script type="module" src="game.js?v=50"></script>
+<script type="module" src="game.js?v=51"></script>
 </body>
 </html>
