@@ -5698,6 +5698,7 @@ window.__jobs = jobs;
 // Speeding tickets: a base fine plus the $75 state surcharge and $3 Hennepin County law-library fee every Minnesota citation
 // carries; the base fine doubles at 20+ mph over (Minn. Stat. § 169.14). Busted: a fine by wanted level, a few hours in booking,
 // and any stolen car goes back to its owner.
+const TICKETS = false; // speeding tickets are off: cops only come after you for stealing cars and ramming them
 const WANTED_FINE = [0, 300, 600, 1200, 2500, 5000];
 const COPS_FOR = [0, 1, 2, 3, 4, 6];
 const police = (() => {
@@ -5795,7 +5796,7 @@ const police = (() => {
     if ((W.chk -= dt) <= 0) {
       W.chk = 0.3;
       const r = info && info.nr && info.nr.d < info.nr.road.w / 2 + 6 ? info.nr.road : null;
-      if (!W.stars && !W.pull && !W.cool && S.mode !== 'foot' && r && r.ms && mph > r.ms + 12) {
+      if (TICKETS && !W.stars && !W.pull && !W.cool && S.mode !== 'foot' && r && r.ms && mph > r.ms + 12) {
         const cop = cops.find(c => !c.chase && Math.hypot(c.x - S.x, c.z - S.z) < 90 && Math.abs(c.y - S.y) < 4);
         if (cop) { W.pull = { cop, t: 12, over: Math.round(mph - r.ms), limit: r.ms }; cop.chase = true; toast(`🚨 Pull over! ${W.pull.over} over the limit — stop within 12 seconds`); buzz(50); }
       }
