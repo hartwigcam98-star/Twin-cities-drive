@@ -235,7 +235,7 @@
   @media (max-width: 520px) { #gig { top:calc(max(12px, env(safe-area-inset-top)) + 58px); min-width:0; max-width:calc(100% - 150px); left:calc(50% - 50px); } body.navigating #gig { top:calc(max(12px, env(safe-area-inset-top)) + 128px); } }
   body.jobcar #fuelBox { display:none !important; }
   @media (max-width: 520px) { #gig { left:max(14px, env(safe-area-inset-left)); transform:none; top:calc(max(12px, env(safe-area-inset-top)) + 134px); max-width:calc(100% - 84px); } body.navigating #gig { top:calc(max(12px, env(safe-area-inset-top)) + 192px); } }
-  .phoneTabs { grid-template-columns:repeat(6, 1fr) !important; }
+  .phoneTabs { grid-template-columns:repeat(7, 1fr) !important; }
   .phoneTabs button { font-size:10px; }
   .pBig.lv { color:var(--accent); }
   .xpBar { height:8px; border-radius:99px; background:rgba(255,255,255,.1); overflow:hidden; margin:8px 0 4px; } .xpBar i { display:block; height:100%; background:var(--accent); }
@@ -287,6 +287,21 @@
   .shFx { position:absolute; left:50%; top:42%; transform:translate(-50%, -50%); font-size:22px; font-weight:900; padding:8px 16px; border-radius:12px; pointer-events:none; animation:shfx .7s ease-out forwards; white-space:nowrap; }
   .shFx.ok { background:#2e9a4a; color:#fff; } .shFx.no { background:#c0392b; color:#fff; }
   @keyframes shfx { 0% { opacity:0; transform:translate(-50%, -30%) scale(.8); } 20% { opacity:1; transform:translate(-50%, -50%) scale(1); } 100% { opacity:0; transform:translate(-50%, -90%); } }
+  #hustle { display:none; position:absolute; left:50%; transform:translateX(-50%); top:max(12px, env(safe-area-inset-top)); min-width:250px; max-width:calc(100% - 200px); background:rgba(22,14,30,.88); backdrop-filter:blur(8px); border:1px solid rgba(179,107,255,.5); border-radius:14px; padding:8px 10px; pointer-events:auto; }
+  #hustle.on { display:block; } #hustle.warn #huMain { color:#ff6b57; }
+  #huArrow { width:30px; height:30px; flex:none; display:grid; place-items:center; color:#b36bff; } #huArrow svg { width:26px; height:26px; fill:currentColor; }
+  #huTitle { font-size:11px; font-weight:800; opacity:.75; text-transform:uppercase; letter-spacing:.04em; } #huMain { font-size:20px; font-weight:900; font-variant-numeric:tabular-nums; } #huSub { font-size:12px; opacity:.85; }
+  #huQuit { border:0; background:rgba(255,255,255,.1); color:inherit; border-radius:8px; height:28px; padding:0 8px; flex:none; font-size:11px; font-weight:800; }
+  .huBar { display:inline-block; position:relative; width:90px; height:8px; border-radius:99px; background:rgba(255,255,255,.15); vertical-align:middle; } .huBar i { position:absolute; left:0; top:0; bottom:0; background:#4fd27a; border-radius:99px; } .huBar b { position:absolute; top:-3px; width:4px; height:14px; margin-left:-2px; background:#ff5a4a; border-radius:2px; }
+  body.navigating #hustle { top:calc(max(12px, env(safe-area-inset-top)) + 118px); }
+  @media (max-width: 520px) { #hustle { left:max(14px, env(safe-area-inset-left)); transform:none; top:calc(max(12px, env(safe-area-inset-top)) + 134px); max-width:calc(100% - 84px); min-width:0; } body.navigating #hustle { top:calc(max(12px, env(safe-area-inset-top)) + 192px); } }
+  .phoneTabs button { font-size:9px !important; } .phoneTabs button i { font-size:18px !important; }
+  .bj small { display:block; font-size:10px; font-weight:900; letter-spacing:.12em; opacity:.6; margin:8px 0 4px; } .bj .hand { display:flex; gap:6px; min-height:72px; }
+  .bj .hand { justify-content:flex-start; } .bj .hand .card { flex:0 0 48px; }
+  .card { width:48px; height:68px; border-radius:7px; background:#f7f5ef; color:#15171a; font-style:normal; font-weight:900; font-size:18px; display:flex; flex-direction:column; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,.4); } .card small { font-size:16px; margin:0 !important; opacity:1 !important; letter-spacing:0 !important; } .card.red { color:#c0392b; }
+  .card.back { background:repeating-linear-gradient(45deg, #7a2232, #7a2232 5px, #5a1626 5px, #5a1626 10px); }
+  .bjMsg { min-height:22px; margin:10px 0 4px; font-weight:900; font-size:16px; color:var(--accent); }
+  .shGrid button:disabled { opacity:.35; }
 </style>
 </head>
 <body>
@@ -323,6 +338,7 @@
   <div id="money">$0</div>
   <div id="lvPill">Lv 1</div>
   <div id="wanted"></div>
+  <div id="hustle"><div class="chTop"><i id="huArrow"><svg viewBox="0 0 24 24"><path d="M12 3 5 20l7-4 7 4z"/></svg></i><div style="min-width:0;flex:1"><div id="huTitle"></div><div id="huMain"></div><div id="huSub"></div></div><button id="huQuit">Bail</button></div></div>
   <div id="gig"><div class="chTop"><i id="gigArrow"><svg viewBox="0 0 24 24"><path d="M12 3 5 20l7-4 7 4z"/></svg></i><div style="min-width:0"><div id="gigTitle"></div><div id="gigMain"></div><div id="gigSub"></div></div><button id="gigQuit">Go offline</button></div></div>
   <div id="driftTag"></div>
   <div id="fxTag"></div>
@@ -356,7 +372,7 @@
   <div class="phoneCase">
     <div class="phoneTop"><b>📱 Phone</b><button id="phoneClose">Close</button></div>
     <div id="phoneBody"></div>
-    <div class="phoneTabs"><button data-tab="bank"><i>🏦</i>Bank</button><button data-tab="jobs"><i>💼</i>Jobs</button><button data-tab="skills"><i>⭐</i>Skills</button><button data-tab="homes"><i>🏢</i>Homes</button><button data-tab="cars"><i>🚗</i>Cars</button><button data-tab="garage"><i>🔑</i>Garage</button></div>
+    <div class="phoneTabs"><button data-tab="bank"><i>🏦</i>Bank</button><button data-tab="jobs"><i>💼</i>Jobs</button><button data-tab="skills"><i>⭐</i>Skills</button><button data-tab="hustle"><i>🕶️</i>Hustle</button><button data-tab="homes"><i>🏢</i>Homes</button><button data-tab="cars"><i>🚗</i>Cars</button><button data-tab="garage"><i>🔑</i>Garage</button></div>
   </div>
 </div>
 <div id="firstLoad"><b>Building the streets…</b>The first visit to a part of the metro pulls real map data, which can take up to a minute. After that it loads instantly.</div>
@@ -442,6 +458,6 @@
 </div>
 
 <script>window.TCD_STATIC = true;</script>
-<script type="module" src="game.js?v=45"></script>
+<script type="module" src="game.js?v=46"></script>
 </body>
 </html>

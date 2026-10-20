@@ -4153,6 +4153,7 @@ function teleport(x, z, label) {
   if (window.__noTeleport && window.__noTeleport()) { toast('Not with the cops on your tail — lose them first'); return; }
   if (window.__onTeleport) window.__onTeleport();
   if (window.__inside && __inside.on) __inside.exit();
+  if (window.__hustle && __hustle.active()) __hustle.stop('Teleporting ended your hustle');
   if (LIFE.hot) { LIFE.hot = null; LIFE.own = null; if (window.__police) { __police.showOwn(); setCar(); } }
   if (S.mode === 'foot') { S.mode = 'car'; if (ME.fig) ME.fig.grp.visible = false; document.body.classList.remove('onfoot'); } // your car comes with you
   S.x = x; S.z = z; S.vx = S.vz = 0; S.y = 0; S.vy = 0; camInit = false;
@@ -4928,7 +4929,7 @@ const life = (() => {
     if (!LIFE_ON() || !started || paused) { if (act) { act = null; btn.classList.remove('on'); } return; }
     const spd = Math.hypot(S.vx, S.vz), c = L.cars[L.active];
     if (inside.on) { const a = inside.action(); if ((a && a.label) !== (act && act.label)) { act = a; btn.textContent = a ? a.label : ''; btn.classList.toggle('on', !!a); } return; }
-    let a = jobs.action();
+    let a = jobs.action() || hustle.action();
     if (a) {} else if (L.home && Math.hypot(L.home.x - S.x, L.home.z - S.z) < (L.home.kind === 'house' ? 30 : 50) && spd < 2) a = { label: `🚪 Go inside${L.home.kind === 'house' ? '' : ' · ' + L.home.unit}`, fn: () => inside.enter() };
     else if (S.mode !== 'foot' && spd < 1.5 && c && c.fuel < TANK - 0.5) { const g = nearby('gas', 30); if (g) a = { label: `⛽ Fill up · ${money((TANK - c.fuel) * GAS)}`, fn: fillUp }; }
     if (!a && spd < 3) { const d = nearby('dealer', 70); if (d) a = { label: `🚗 Shop at ${d.name}`, fn: () => phone.open('cars') }; }
@@ -5054,6 +5055,33 @@ const phone = (() => {
         });
         h += '</div>';
       });
+    } else if (tab === 'hustle') {
+      const lv = hustle.repLvl(), nx = (lv + 1) * 100;
+      h += `<div class="pBig lv" style="color:#b36bff">Street rep ${lv}</div><div class="xpBar"><i style="width:${lv >= 10 ? 100 : ((L.rep % 100)).toFixed(0)}%;background:#b36bff"></i></div><div class="pSub">${L.rep} rep${lv < 10 ? ` · ${nx - L.rep} to level ${lv + 1}` : ''} · every level makes hustles pay 6% more. Cops don’t like any of this.</div>`;
+      const nav = (s, label) => `<button class="pBtn ghost sm" data-act="navspot" data-x="${s.x.toFixed(0)}" data-z="${s.z.toFixed(0)}" data-n="${esc(s.n)}">${label || 'Navigate'} · ${fmtDist(Math.hypot(s.x - S.x, s.z - S.z))}</button>`;
+      h += `<div class="pCard"><b>📦 Package runs</b><span class="pR">${money(Math.round(450 * hustle.repMult()))}+</span><div class="pSub">Dre texts you a pickup behind a local business and a drop across town. Beat the clock; patrol cars may get curious.</div>${hustle.active() ? '<div class="pSub">You’re busy with a hustle right now.</div>' : '<button class="pBtn sm" data-act="pkg">Text Dre for work</button>'}</div>`;
+      const ch = hustle.nearest('chop');
+      h += `<div class="pCard"><b>🔧 Chop shops</b><div class="pSub">Steal a car (walk up to a stopped one and press F), then drive it to a chop shop for cash — ${money(Math.round(350 * hustle.repMult()))} for a beater up to ${money(Math.round(3200 * hustle.repMult()))} for a sports car. They’ll give you a ride back to your own car.</div><div class="pSub">Nearest: ${esc(ch.n.replace(/ \(.*/, ''))}</div><div class="pUnits">${nav(ch)}</div></div>`;
+      const rc = hustle.nearest('race'), open = hustle.night(20, 4);
+      h += `<div class="pCard"><b>🏁 Street races</b><span class="pR">${open ? '🟢 tonight' : '8 PM–4 AM'}</span><div class="pSub">Buy in for ${money(Math.min(1000, 100 + lv * 100))}, race a local through 6 checkpoints, winner takes the pot. Somebody usually calls the cops.</div><div class="pSub">Nearest: ${esc(rc.n.replace('Street race — ', ''))}</div><div class="pUnits">${nav(rc)}</div></div>`;
+      const cd = hustle.nearest('cards'), co = hustle.night(21, 3);
+      h += `<div class="pCard"><b>🃏 Back-room blackjack</b><span class="pR">${co ? '🟢 open' : '9 PM–3 AM'}</span><div class="pSub">$25–$500 hands. Dealer stands on 17; blackjack pays 3:2. Occasionally raided.</div><div class="pSub">${esc(cd.n.replace('Back-room blackjack — ', ''))}</div><div class="pUnits">${nav(cd)}</div></div>`;
+      { // the bookie
+        const ls = hustle.lines(), open = (L.bets || []).filter(b => !b.done), stake = Math.min(500, 50 + lv * 50);
+        h += `<div class="pCard"><b>📞 Sal the bookie</b><span class="pR">${money(stake)} a bet</span><div class="pSub">Sports betting still isn’t legal in Minnesota, so Sal runs his book off the record. Payouts are the odds × your stake; Sal keeps a cut.</div>`;
+        ls.slice(0, 6).forEach(g => { h += `<div class="pRow">${g.k ? 'Tmrw' : 'Today'} ${jobs.fh(g.h)} · ${esc(g.team)}<span><button class="pBtn sm mini" data-act="bet" data-id="${esc(g.id)}" data-s="W" data-st="${stake}">Win ${g.oddsW}x</button><button class="pBtn sm mini ghost" data-act="bet" data-id="${esc(g.id)}" data-s="L" data-st="${stake}">Lose ${g.oddsL}x</button></span></div>`; });
+        if (!ls.length) h += '<div class="pSub">No games on the board right now.</div>';
+        if (open.length) h += `<div class="pSub"><b>Your action:</b> ${open.map(b => `${money(b.stake)} on ${esc(b.team)} to ${b.side === 'W' ? 'win' : 'lose'} (${b.odds}x)`).join(' · ')}</div>`;
+        const last = (L.bets || []).filter(b => b.done).slice(-3);
+        if (last.length) h += `<div class="pSub">Recent: ${last.map(b => `${esc(b.team)} ${b.won ? '✅' : '❌'}`).join(' · ')}</div>`;
+        h += '</div>';
+      }
+      const ev = hustle.todaysEvents();
+      h += `<div class="pCard"><b>🎟️ Ticket flipping</b><div class="pSub">Buy 4 tickets at face value outside the venue, then sell them to fans for more (from 3 hours before start). Reselling is legal in Minnesota, but venue security will walk you off their property.</div>`;
+      if (ev.length) ev.forEach(({ v, e }) => { h += `<div class="pRow">${esc(e.t)} · ${esc(v.n)}<span>${jobs.fh(e.h)} ${tod >= e.h - 3 ? '🟢' : ''}</span></div>`; });
+      else h += '<div class="pSub">No more events today.</div>';
+      if (ev.length) h += `<div class="pUnits">${nav(ev[0].v, 'Go to ' + ev[0].v.n)}</div>`;
+      h += '</div>';
     } else if (tab === 'skills') {
       const need = xpNeed(L.lv);
       h += `<div class="pBig lv">Level ${L.lv}</div><div class="xpBar"><i style="width:${(L.xp / need * 100).toFixed(0)}%"></i></div><div class="pSub">${Math.floor(L.xp)} / ${need} XP to level ${L.lv + 1} · gigs and shifts earn XP</div>`;
@@ -5121,6 +5149,9 @@ const phone = (() => {
     else if (a === 'quit') { jobs.quit(); render(); }
     else if (a === 'navwork') { close(); startNav(L.job.x, L.job.z, L.job.where); }
     else if (a === 'spend') { jobs.spend(b.dataset.k); render(); }
+    else if (a === 'pkg') { close(); hustle.startRun(); }
+    else if (a === 'bet') { hustle.placeBet(b.dataset.id, b.dataset.s, +b.dataset.st); render(); }
+    else if (a === 'navspot') { close(); startNav(+b.dataset.x, +b.dataset.z, b.dataset.n); }
   };
   tabs.forEach(b => b.onclick = () => { tab = b.dataset.tab; ctx = null; render(); });
   function open(t, c) { if (!LIFE_ON() || !started) return; if (t) tab = t; ctx = c || null; P.classList.add('on'); paused = true; render(); }
@@ -5689,7 +5720,7 @@ const jobs = (() => {
   function hud() { $('btnPhone').classList.toggle('badge', !L.job && !gig && !(L.gigsDone > 0)); const b = $('lvPill'); if (b) { b.textContent = `Lv ${L.lv}${L.pts ? ' · ' + L.pts + ' pt' + (L.pts > 1 ? 's' : '') : ''}`; b.classList.toggle('pts', L.pts > 0); } }
   $('gigQuit').onclick = () => goOffline();
   window.__onTeleport = () => { if (gig) { goOffline(true); toast('Teleporting ended your gig'); } };
-  return { gainXP, spend, sk, meets, reqText, goOnline, goOffline, update, clockRate, apply, quit, work, action, tick, hud, status, nextShift, wakeFor, fh, daysText, today, syncDay, WD, LAD, G,
+  return { roadPoints, allPois, pickNear, gainXP, spend, sk, meets, reqText, goOnline, goOffline, update, clockRate, apply, quit, work, action, tick, hud, status, nextShift, wakeFor, fh, daysText, today, syncDay, WD, LAD, G,
     gig: () => gig, payMult, gigMult, tipMult, workplace };
 })();
 
@@ -5785,6 +5816,7 @@ const police = (() => {
     flashTag('BUSTED'); sfx.siren(0);
     toast(`Busted! ${money(fine)} fine${impound ? ` + ${money(impound)} impound` : ''}${hot ? ', the stolen car went back to its owner' : ''} · ${hrs} hours in booking — it's ${clockText()}`);
     L.busts = (L.busts || 0) + 1; life.touch(); life.save();
+    if (window.__hustle && __hustle.active()) __hustle.stop();
   }
   // ── per frame ──
   function update(dt, info) {
@@ -6013,6 +6045,304 @@ const inside = (() => {
   return { get on() { return IN.on; }, scene: sc, enter, exit, update, action, build, IN };
 })();
 window.__inside = inside;
+// ───────────────────────── side hustles: chop shop, street racing, package runs, ticket flipping, back-room blackjack ─────────────────────────
+// The shady side of town. Bigger payouts, more heat: patrol cars can turn a package run or a street race into a chase, and
+// "street rep" (earned by pulling these off) makes every hustle pay a little better.
+const HUSTLE_SPOTS = (() => {
+  const P = (n, la, lo, kind) => { const [x, z] = proj(la, lo); return { n, x, z, kind }; };
+  return [
+    P('Northside Auto Salvage (chop shop)', 45.0060, -93.2860, 'chop'), P('Hiawatha Ave scrapyard (chop shop)', 44.9330, -93.2240, 'chop'),
+    P('Midway rail yard garage (chop shop)', 44.9640, -93.1680, 'chop'), P('Fridley industrial lot (chop shop)', 45.0700, -93.2580, 'chop'),
+    P('Street race — North Loop warehouses', 44.9920, -93.2770, 'race'), P('Street race — Hiawatha industrial', 44.9400, -93.2270, 'race'),
+    P('Street race — Shakopee Ave lots, Bloomington', 44.8580, -93.2930, 'race'), P('Street race — Pig’s Eye, St. Paul', 44.9220, -93.0510, 'race'),
+    P('Back-room blackjack — Lake Street', 44.9483, -93.2600, 'cards'), P('Back-room blackjack — Northeast', 45.0010, -93.2580, 'cards'),
+  ];
+})();
+// real venues; the events and times are made up for the game
+const VENUES = (() => {
+  const V = (n, la, lo, ev) => { const [x, z] = proj(la, lo); return { n, x, z, ev }; };
+  return [
+    V('U.S. Bank Stadium', 44.9737, -93.2575, [{ d: [6], h: 12, t: 'Vikings game', face: 140, hot: 1.6 }, { d: [3], h: 19.5, t: 'stadium concert', face: 110, hot: 1.4 }]),
+    V('Target Field', 44.9817, -93.2776, [{ d: [1, 2, 4, 5], h: 18.5, t: 'Twins game', face: 45, hot: 1.1 }]),
+    V('Target Center', 44.9795, -93.2761, [{ d: [0, 2, 4, 5], h: 19, t: 'Timberwolves game', face: 70, hot: 1.35 }]),
+    V('Xcel Energy Center', 44.9448, -93.1010, [{ d: [1, 3, 5], h: 19, t: 'Wild game', face: 85, hot: 1.3 }]),
+    V('Allianz Field', 44.9532, -93.1650, [{ d: [2, 6], h: 19.5, t: 'Minnesota United match', face: 50, hot: 1.2 }]),
+  ];
+})();
+const CHOP_VALUE = { beater: 350, hatch: 650, sedan: 900, suv: 1300, pickup: 1400, van: 900, lux: 2200, sport: 3200, taxi: 500 };
+const hustle = (() => {
+  const L = LIFE;
+  if (L.rep == null) L.rep = 0;
+  const repLvl = () => Math.min(10, Math.floor(L.rep / 100));
+  const repMult = () => 1 + 0.06 * repLvl();
+  const addRep = n => { const was = repLvl(); L.rep = Math.max(0, L.rep + n); if (repLvl() > was) { flashTag('STREET REP UP'); toast(`Street rep level ${repLvl()} — hustles pay ${Math.round((repMult() - 1) * 100)}% more`); } life.touch(); };
+  const near = (kind, R) => HUSTLE_SPOTS.filter(s => s.kind === kind).find(s => Math.hypot(s.x - S.x, s.z - S.z) < R);
+  const nearest = kind => HUSTLE_SPOTS.filter(s => s.kind === kind).sort((a, b) => Math.hypot(a.x - S.x, a.z - S.z) - Math.hypot(b.x - S.x, b.z - S.z))[0];
+  const night = (a, b) => tod >= a || tod < b;
+  // ── the banner and a marker for races and runs ──
+  const el = $('hustle'), elT = $('huTitle'), elM = $('huMain'), elS = $('huSub'), elA = $('huArrow');
+  const mkMat = new THREE.MeshBasicMaterial({ color: '#b36bff', transparent: true, opacity: 0.25, depthWrite: false, side: THREE.DoubleSide });
+  const mkRing = new THREE.MeshBasicMaterial({ color: '#b36bff', transparent: true, opacity: 0.85, side: THREE.DoubleSide });
+  const marker = new THREE.Group();
+  { const col = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 140, 14, 1, true), mkMat); col.position.y = 70; marker.add(col);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(7, 0.45, 8, 40), mkRing); ring.position.y = 7.4; marker.add(ring); }
+  marker.visible = false; scene.add(marker);
+  const place = p => { if (!p) { marker.visible = false; return; } const sf = surfaceAt(p.x, p.z, 5); marker.position.set(p.x, sf ? sf.h : 0, p.z); marker.visible = true; };
+  let run = null; // the race or package run in progress
+  function show() { el.classList.toggle('on', !!run); }
+  function stop(msg) { run = null; place(null); if (nav.route) endNav(); show(); if (msg) toast(msg); }
+  const arrow = p => { const a = Math.atan2(p.x - S.x, p.z - S.z) - S.h; elA.style.transform = `rotate(${(-a * 180 / Math.PI).toFixed(1)}deg)`; };
+  const busy = () => { if (jobs.gig()) return 'Go offline from your gig first'; if (chal.active()) return 'Finish your challenge first'; if (run) return 'You’re already on a hustle'; return null; };
+  // ── 1. chop shop ──
+  function chop(spot) {
+    if (!L.hot) return;
+    if (police.stars()) { toast('“Not with cops on your tail. Lose them, then come back.”'); return; }
+    if (L.hot.type === 'police') { toast('“A cop car? Get that thing out of here.”'); return; }
+    const pay = Math.round((CHOP_VALUE[L.hot.type] || 600) * repMult() * (0.85 + Math.random() * 0.3) / 10) * 10;
+    life.earn(pay, `Cash — ${spot.n.replace(/ \(.*/, '')}`); addRep(20); flashTag(`+${money(pay)}`); buzz(40);
+    const o = L.own; L.hot = null; L.own = null; police.showOwn();
+    if (o) { // the crew gives you a ride back to your own car
+      if (S.mode === 'foot') { S.mode = 'car'; if (ME.fig) ME.fig.grp.visible = false; document.body.classList.remove('onfoot'); }
+      Object.assign(S, { x: o.x, y: o.y || 0, z: o.z, h: o.h, vx: 0, vz: 0, vy: 0 }); camInit = false; wantTiles(S.x, S.z);
+    }
+    setCar(); terrainizeScene(); life.hud(); life.save();
+    toast(`Sold it for parts: ${money(pay)} cash. The crew drops you back at your car.`);
+  }
+  // ── 2. street racing (nights) ──
+  function startRace(spot, bet) {
+    const b = busy(); if (b) { toast(b); return; }
+    if (S.mode === 'foot') { toast('You need a car to race'); return; }
+    if (L.money < bet) { toast(`The buy-in is ${money(bet)}`); return; }
+    const rp = jobs.roadPoints(2500, S.x, S.z);
+    if (rp.length < 40) { toast('Roads are still loading — try again in a second'); return; }
+    const pts = []; let px = S.x, pz = S.z, hx = Math.sin(S.h), hz = Math.cos(S.h);
+    for (let k = 0; k < 6; k++) {
+      let pick = null;
+      for (let t = 0; t < 300 && !pick; t++) { const c = rp[(Math.random() * rp.length) | 0], d = Math.hypot(c.x - px, c.z - pz); if (d < 280 || d > 600) continue; if (((c.x - px) * hx + (c.z - pz) * hz) / d < (t < 200 ? 0 : -0.7)) continue; if (pts.some(q => Math.hypot(q.x - c.x, q.z - c.z) < 200)) continue; pick = c; }
+      if (!pick) break;
+      hx = pick.x - px; hz = pick.z - pz; const l = Math.hypot(hx, hz) || 1; hx /= l; hz /= l; px = pick.x; pz = pick.z; pts.push(pick);
+    }
+    if (pts.length < 4) { toast('Couldn’t lay out a course here'); return; }
+    life.pay(bet, 'Street race buy-in');
+    let dist = Math.hypot(pts[0].x - S.x, pts[0].z - S.z); for (let i = 1; i < pts.length; i++) dist += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z);
+    const rival = { name: ['Dez', 'Kenji', 'Rosa', 'Big Mike', 'Tash', 'Vinny'][(Math.random() * 6) | 0], v: 19 + Math.random() * 6 + repLvl() * 0.6 };
+    run = { type: 'race', spot, bet, pts, i: 0, t: -3, dist: dist * 1.25, rival, copAt: Math.random() < 0.4 ? 10 + Math.random() * 25 : -1 };
+    place(pts[0]); show(); flashTag('3'); sfx.whoosh();
+  }
+  // ── 3. package runs ──
+  function startRun() {
+    const b = busy(); if (b) { toast(b); return; }
+    const shops = jobs.allPois(p => p.c === 3 || p.c === 0), rp = jobs.roadPoints(5000, S.x, S.z);
+    const from = jobs.pickNear(shops, S.x, S.z, 200, 1800) || jobs.pickNear(shops, S.x, S.z, 0, 3000);
+    const to = from && jobs.pickNear(rp, from.x, from.z, 1800, 4500);
+    if (!from || !to) { toast('“Nothing right now. Hit me up later.”'); return; }
+    const d = Math.hypot(to.x - from.x, to.z - from.z), pay = Math.round((220 + d * 0.14) * repMult() / 10) * 10;
+    run = { type: 'pkg', stage: 'pick', from, to: { ...to, n: to.n ? `a car parked on ${to.n}` : 'the drop spot' }, pay, limit: d * 1.35 / 15 + 75, t: 0 };
+    place(from); startNav(from.x, from.z, from.name); show();
+    toast(`📱 Dre: “Pick up a bag behind ${from.name}. Don’t open it. ${money(pay)} when it lands.”`);
+  }
+  // ── per frame: races and runs ──
+  function update(dt) {
+    if (!run || !LIFE_ON()) { if (run && !LIFE_ON()) stop(); return; }
+    const spd = Math.hypot(S.vx, S.vz);
+    if (run.type === 'race') {
+      run.t += dt;
+      const r = run;
+      if (r.t < 0) { elT.textContent = `🏁 vs ${r.rival.name} · ${money(r.bet * 2)} pot`; elM.textContent = String(Math.ceil(-r.t)); elS.textContent = 'Get ready…'; arrow(r.pts[0]); if (Math.ceil(-r.t) !== Math.ceil(-(r.t - dt))) flashTag(r.t > -0.05 ? 'GO!' : String(Math.ceil(-r.t))); return; }
+      const p = r.pts[r.i], d = Math.hypot(S.x - p.x, S.z - p.z); arrow(p);
+      if (d < 16) { r.i++; buzz(20); sfx.whoosh(); if (r.i >= r.pts.length) return finishRace(); place(r.pts[r.i]); }
+      const rivalPct = Math.min(1, r.t * r.rival.v / r.dist), myPct = r.i / r.pts.length;
+      elT.textContent = `🏁 Street race vs ${r.rival.name}`; elM.textContent = `${r.i}/${r.pts.length}`;
+      elS.innerHTML = `<span class="huBar"><i style="width:${(myPct * 100).toFixed(0)}%"></i><b style="left:${(rivalPct * 100).toFixed(0)}%"></b></span> ${rivalPct > myPct ? 'behind' : 'ahead'} · ${fmtDist(d)}`;
+      if (rivalPct >= 1 && !r.lost) { r.lost = true; toast(`${r.rival.name} crossed the line first…`); }
+      if (r.copAt > 0 && r.t > r.copAt) { r.copAt = -1; police.addWanted(2, 'Street racing'); }
+      if (r.t > r.dist / 8) stop(`You bailed on the race — ${money(r.bet)} gone`);
+      return;
+    }
+    if (run.type === 'pkg') {
+      const r = run; r.t += dt;
+      const tgt = r.stage === 'pick' ? r.from : r.to, d = Math.hypot(S.x - tgt.x, S.z - tgt.z); arrow(tgt);
+      const left = r.limit - r.t;
+      elT.textContent = '📦 Package run'; elM.textContent = r.stage === 'pick' ? 'Pick up' : `${Math.max(0, Math.floor(left / 60))}:${String(Math.max(0, Math.floor(left % 60))).padStart(2, '0')}`;
+      elS.textContent = `${r.stage === 'pick' ? r.from.name : r.to.n} · ${fmtDist(d)} · ${money(r.pay)}`;
+      el.classList.toggle('warn', r.stage === 'drop' && left < 30);
+      if (r.stage === 'drop') {
+        if (left <= 0) { addRep(-10); return stop('📱 Dre: “Too slow. Deal’s off.”'); }
+        // patrol cars notice someone in a hurry with a bag
+        if (!police.stars()) for (const c of traffic.cars) if (c.cop && !c.chase && Math.hypot(c.x - S.x, c.z - S.z) < 70 && Math.random() < dt * 0.25) { police.addWanted(2, 'Suspicious package'); break; }
+      }
+      if (d < (tgt.c !== undefined ? 45 : 28) && spd < 3) {
+        if (r.stage === 'pick') { r.stage = 'drop'; r.t = 0; place(r.to); startNav(r.to.x, r.to.z, 'Drop spot'); toast(`Got the bag. Get it to ${r.to.n} — the clock is running.`); buzz(30); }
+        else { life.earn(r.pay, 'Cash — package run'); addRep(25); flashTag(`+${money(r.pay)}`); stop('📱 Dre: “Smooth. Cash is yours.”'); }
+      }
+    }
+  }
+  function finishRace() {
+    const r = run, won = r.t * r.rival.v < r.dist;
+    if (won) { const pot = Math.round(r.bet * 2 * (1 + 0.03 * repLvl())); life.earn(pot, `Street race winnings vs ${r.rival.name}`); addRep(30); flashTag('YOU WIN'); stop(`You beat ${r.rival.name}! ${money(pot)} pot`); }
+    else { addRep(5); flashTag('LOST'); stop(`${r.rival.name} won. ${money(r.bet)} gone.`); }
+  }
+  // ── full-screen panels: ticket flipping and blackjack (reuse the shift panel) ──
+  const box = $('shift'), body = $('shBody'), oT = $('shTitle'), oTime = $('shTime'), oSc = $('shScore'), oHint = $('shHint'), oSkip = $('shSkip');
+  let ov = null, ovTimer = null;
+  function openOv(title, hint, leaveText, onLeave) {
+    ov = { onLeave }; box.classList.add('on'); paused = true; oT.textContent = title; oHint.textContent = hint; oSkip.textContent = leaveText; oTime.textContent = ''; oSc.textContent = ''; $('shBar').style.width = '0%';
+  }
+  function closeOv() { clearInterval(ovTimer); ov = null; box.classList.remove('on'); paused = false; last = performance.now(); oSkip.textContent = 'Skip shift · base pay'; }
+  oSkip.addEventListener('click', () => { if (ov) { const f = ov.onLeave; f && f(); } });
+  // ── 4. ticket flipping outside the venues ──
+  function eventAt(v) { const d = jobs.today() % 7; return v.ev.find(e => e.d.includes(d) && tod >= e.h - 3 && tod <= e.h + 0.25); }
+  function todaysEvents() { const d = jobs.today() % 7, out = []; for (const v of VENUES) for (const e of v.ev) if (e.d.includes(d) && tod <= e.h + 0.25) out.push({ v, e }); return out.sort((a, b) => a.e.h - b.e.h); }
+  function flip(v, e) {
+    const n = 4, cost = e.face * n;
+    if (L.money < cost) { toast(`You need ${money(cost)} to buy the 4 tickets`); return; }
+    life.pay(cost, `4 tickets — ${e.t}`);
+    let left = n, cash = 0, fan = null, t = 45, kicked = false, haggled = false;
+    const FANS = ['A dad with two kids in jerseys', 'College kids splitting the cost', 'A couple on a date night', 'A guy who drove in from Rochester', 'Superfan with a painted face', 'Someone checking their phone a lot'];
+    const nextFan = () => {
+      const sec = Math.random() < 0.13;
+      fan = { who: sec ? pick(['A guy in a plain polo with an earpiece', 'Someone who keeps asking “so where’d you get these?”', 'A woman with a lanyard tucked into her jacket']) : pick(FANS), offer: Math.round(e.face * (0.75 + Math.random() * e.hot * 0.9) * (1 + 0.02 * repLvl())), sec };
+      haggled = false; draw();
+    };
+    const pick = a => a[(Math.random() * a.length) | 0];
+    const draw = () => {
+      body.innerHTML = `<div class="shCard"><small>${esc(v.n.toUpperCase())} · ${esc(e.t.toUpperCase())}</small><b>${left} ticket${left === 1 ? '' : 's'} left</b><span>Paid ${money(e.face)} each · cash so far ${money(cash)}</span></div>` +
+        (fan && left ? `<div class="shCard"><small>A FAN WALKS UP</small><b style="font-size:16px">${esc(fan.who)}</b><span>“I’ll give you <b>${money(fan.offer)}</b> for one.”</span></div><div class="shGrid three"><button data-a="sell">Sell</button><button data-a="haggle"${haggled ? ' disabled' : ''}>Ask ${money(fan.offer * 1.25)}</button><button data-a="pass">Pass</button></div>` : '') +
+        (!left ? '<button class="shGo" data-a="done">Sold out — head out</button>' : '');
+    };
+    const end = () => {
+      closeOv(); const profit = cash - cost;
+      if (cash) life.earn(cash, `Ticket sales — ${v.n}`);
+      addRep(profit > 0 ? 10 : 0);
+      toast(kicked ? `Security walked you off the property — kept ${money(cash)}, lost the rest` : `Done flipping: ${profit >= 0 ? 'profit' : 'loss'} of ${money(Math.abs(profit))}`);
+    };
+    openOv(`🎟️ Flipping tickets · ${v.n}`, 'Sell to fans for more than you paid. Venue security doesn’t want resellers on their property — watch who you deal with.', 'Walk away', end);
+    body.onclick = ev => {
+      const b = ev.target.closest('button'); if (!b || !ov) return;
+      const a = b.dataset.a;
+      if (a === 'done') return end();
+      if (!fan) return;
+      if (a === 'sell') { if (fan.sec) { kicked = true; feedback(false, 'Security!'); return end(); } cash += fan.offer; left--; feedback(true, `+${money(fan.offer)}`); }
+      if (a === 'haggle') { haggled = true; if (fan.sec) { kicked = true; feedback(false, 'Security!'); return end(); } if (Math.random() < 0.5) { const p = Math.round(fan.offer * 1.25); cash += p; left--; feedback(true, `+${money(p)}`); } else { feedback(false, 'They walked'); } }
+      if (a === 'pass') feedback(true, 'Next');
+      left ? nextFan() : draw();
+    };
+    nextFan();
+    ovTimer = setInterval(() => { t -= 0.1; oTime.textContent = `⏱ ${Math.max(0, Math.ceil(t))}s`; oSc.textContent = `💵 ${money(cash)}`; $('shBar').style.width = Math.max(0, t / 45 * 100) + '%'; if (t <= 0) end(); }, 100);
+  }
+  function feedback(ok, msg) { const f = document.createElement('div'); f.className = 'shFx ' + (ok ? 'ok' : 'no'); f.textContent = msg; box.appendChild(f); setTimeout(() => f.remove(), 700); buzz(ok ? 12 : 40); }
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  // ── 5. back-room blackjack (nights) ──
+  function cards(spot) {
+    const SUITS = ['♠', '♥', '♦', '♣'], RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+    let deck = [], hand = null, bet = 50, net = 0, hands = 0;
+    const shuffleDeck = () => { deck = []; for (let k = 0; k < 4; k++) for (const s of SUITS) for (const r of RANKS) deck.push([r, s]); for (let i = deck.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [deck[i], deck[j]] = [deck[j], deck[i]]; } };
+    const draw1 = () => { if (deck.length < 20) shuffleDeck(); return deck.pop(); };
+    const val = h => { let v = 0, a = 0; for (const [r] of h) { if (r === 'A') { a++; v += 11; } else v += ['J', 'Q', 'K'].includes(r) ? 10 : +r; } while (v > 21 && a) { v -= 10; a--; } return v; };
+    const cardHtml = (c, hide) => hide ? '<i class="card back"></i>' : `<i class="card ${c[1] === '♥' || c[1] === '♦' ? 'red' : ''}">${c[0]}<small>${c[1]}</small></i>`;
+    const render = msg => {
+      const h = hand;
+      body.innerHTML = `<div class="bj"><small>DEALER${h && !h.done ? '' : h ? ' · ' + val(h.d) : ''}</small><div class="hand">${h ? h.d.map((c, i) => cardHtml(c, i === 1 && !h.done)).join('') : ''}</div>
+        <small>YOU${h ? ' · ' + val(h.p) : ''}</small><div class="hand">${h ? h.p.map(c => cardHtml(c)).join('') : ''}</div>
+        <div class="bjMsg">${msg || ''}</div></div>` +
+        (!h || h.done ? `<div class="shLab">Bet</div><div class="shChips">${[25, 50, 100, 250, 500].map(v => `<button class="${v === bet ? 'on' : ''}" data-bet="${v}">$${v}</button>`).join('')}</div><button class="shGo" data-a="deal">Deal · ${money(bet)}</button>`
+          : `<div class="shGrid three"><button data-a="hit">Hit</button><button data-a="stand">Stand</button><button data-a="double"${h.p.length > 2 || L.money < h.bet ? ' disabled' : ''}>Double</button></div>`);
+      oSc.textContent = `${net >= 0 ? '+' : '−'}${money(Math.abs(net))} tonight`;
+    };
+    const settle = () => {
+      const h = hand; h.done = true;
+      const pv = val(h.p);
+      if (pv <= 21) while (val(h.d) < 17) h.d.push(draw1());
+      const dv = val(h.d), bj = pv === 21 && h.p.length === 2;
+      let win = 0, msg;
+      if (pv > 21) { msg = 'Bust.'; }
+      else if (bj && !(dv === 21 && h.d.length === 2)) { win = h.bet * 2.5; msg = 'Blackjack! Pays 3 to 2.'; }
+      else if (dv > 21 || pv > dv) { win = h.bet * 2; msg = dv > 21 ? 'Dealer busts — you win.' : 'You win.'; }
+      else if (pv === dv) { win = h.bet; msg = 'Push.'; }
+      else msg = 'Dealer wins.';
+      if (win) life.earn(win, 'Blackjack payout');
+      net += win - h.bet; hands++;
+      if (Math.random() < 0.025) { // a raid
+        closeOv(); life.pay(250, 'Fine — illegal gambling'); police.addWanted(1, 'Illegal card game');
+        toast('🚨 Police raid! You got a $250 citation and slipped out the back.'); return;
+      }
+      render(msg);
+    };
+    body.onclick = ev => {
+      const b = ev.target.closest('button'); if (!b || !ov) return;
+      if (b.dataset.bet) { bet = +b.dataset.bet; render(); return; }
+      const a = b.dataset.a;
+      if (a === 'deal') {
+        if (L.money < bet) { render('Not enough cash for that bet.'); return; }
+        life.pay(bet, 'Blackjack bet');
+        hand = { p: [draw1(), draw1()], d: [draw1(), draw1()], bet, done: false };
+        if (val(hand.p) === 21) return settle();
+        render(); return;
+      }
+      if (!hand || hand.done) return;
+      if (a === 'hit') { hand.p.push(draw1()); if (val(hand.p) >= 21) return settle(); render(); }
+      if (a === 'stand') settle();
+      if (a === 'double') { life.pay(hand.bet, 'Blackjack double down'); hand.bet *= 2; hand.p.push(draw1()); settle(); }
+    };
+    shuffleDeck();
+    openOv(`🃏 Blackjack · ${spot.n.replace('Back-room blackjack — ', '')}`, 'Dealer stands on 17 · blackjack pays 3:2 · cops raid now and then.', 'Cash out & leave', () => { closeOv(); if (hands) toast(`You left ${net >= 0 ? 'up' : 'down'} ${money(Math.abs(net))}`); if (net > 200) addRep(5); });
+    render('Place your bet.');
+  }
+  // ── 6. the bookie: bets on tonight's and tomorrow's games (sports betting isn't legal in Minnesota) ──
+  if (!L.bets) L.bets = [];
+  const SPORTS = /game|match/;
+  const hash = str => { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return ((h >>> 0) % 10000) / 10000; };
+  function lines() { // games today (not started yet) and tomorrow, with a moneyline for the home team
+    const out = [], d0 = jobs.today();
+    for (let k = 0; k < 2; k++) {
+      const d = d0 + k;
+      for (const v of VENUES) for (const e of v.ev) {
+        if (!SPORTS.test(e.t) || !e.d.includes(d % 7) || (k === 0 && tod >= e.h)) continue;
+        const pw = 0.35 + hash(`${d}:${v.n}`) * 0.33; // home win chance 35–68%
+        const fair = p => 1 / p, juice = 0.95; // the house keeps about 5%
+        out.push({ id: `${d}:${v.n}`, d, k, v: v.n, t: e.t, h: e.h, team: e.t.replace(/ (game|match)$/, ''), pw, oddsW: +(fair(pw) * juice).toFixed(2), oddsL: +(fair(1 - pw) * juice).toFixed(2) });
+      }
+    }
+    return out.sort((a, b) => a.d - b.d || a.h - b.h);
+  }
+  function placeBet(id, side, stake) {
+    const g = lines().find(x => x.id === id); if (!g) { toast('That game’s already started'); return; }
+    if (L.money < stake) { toast(`You need ${money(stake)}`); return; }
+    if (L.bets.filter(b => !b.done).length >= 6) { toast('“You’ve got enough action. Wait till those settle.”'); return; }
+    const odds = side === 'W' ? g.oddsW : g.oddsL;
+    life.pay(stake, `Bet with Sal — ${g.team} ${side === 'W' ? 'to win' : 'to lose'}`);
+    L.bets.push({ id, d: g.d, h: g.h, team: g.team, side, stake, odds, pw: g.pw, done: false });
+    life.touch(); life.save(); toast(`📱 Sal: “${money(stake)} on the ${g.team} ${side === 'W' ? 'winning' : 'losing'} at ${odds}x. You’re on.”`);
+  }
+  function settleBets() {
+    const now = jobs.today() * 24 + tod;
+    for (const b of L.bets) {
+      if (b.done || now < b.d * 24 + b.h + 3) continue;
+      b.done = true; const homeWon = hash(b.id + ':result') < b.pw;
+      b.won = (b.side === 'W') === homeWon;
+      if (b.won) { const pay = Math.round(b.stake * b.odds); life.earn(pay, `Sal paid out — ${b.team}`); toast(`📱 Sal: “${b.team} ${homeWon ? 'won' : 'lost'}. You hit — ${money(pay)}.”`); flashTag(`+${money(pay)}`); addRep(3); }
+      else toast(`📱 Sal: “${b.team} ${homeWon ? 'won' : 'lost'}. Tough one. Better luck next time.”`);
+      life.touch();
+    }
+    if (L.bets.length > 30) L.bets = L.bets.filter(b => !b.done).concat(L.bets.filter(b => b.done).slice(-10));
+  }
+  // ── what the action button offers around the shady spots ──
+  function action() {
+    if (run || inside.on) return null;
+    const spd = Math.hypot(S.vx, S.vz); if (spd > 2.5) return null;
+    if (L.hot) { const s = near('chop', 60); if (s) return { label: `🔧 Sell this car for parts · ~${money((CHOP_VALUE[L.hot.type] || 600) * repMult())}`, fn: () => chop(s) }; }
+    const r = near('race', 70);
+    if (r && S.mode !== 'foot') { const bet = Math.min(1000, 100 + repLvl() * 100); return night(20, 4) ? { label: `🏁 Street race · ${money(bet)} buy-in`, fn: () => startRace(r, bet) } : { label: '🏁 Races start at 8 PM', fn: () => toast('Come back after 8 PM — races run until 4 AM') }; }
+    const c = near('cards', 60);
+    if (c) return night(21, 3) ? { label: '🃏 Back-room blackjack', fn: () => cards(c) } : { label: '🃏 The game starts at 9 PM', fn: () => toast('The back room opens at 9 PM') };
+    for (const v of VENUES) if (Math.hypot(v.x - S.x, v.z - S.z) < 220) { const e = eventAt(v); if (e) return { label: `🎟️ Flip tickets · ${e.t}`, fn: () => flip(v, e) }; }
+    return null;
+  }
+  $('huQuit').onclick = () => { if (run && run.type === 'race') stop(`You bailed — ${money(run.bet)} gone`); else if (run) { addRep(-5); stop('You dumped the package.'); } };
+  return { lines, placeBet, settleBets, update, action, startRun, chop, startRace, flip, cards, todaysEvents, nearest, repLvl, repMult, overlayOn: () => !!ov, active: () => !!run, stop, spots: HUSTLE_SPOTS, VENUES, night };
+})();
+window.__hustle = hustle;
+const overlayUp = () => shiftGame.isOn() || phone.isOpen() || hustle.overlayOn();
 
 // ───────────────────────── challenges: timed runs, checkpoint rush, landmark hunt ─────────────────────────
 const DISCOVER = [
@@ -6197,7 +6527,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyM') bigMap.classList.contains('on') ? closeMap() : openMap();
   if (e.code === 'KeyR' && !inside.on) respawnOnRoad();
   if (e.code === 'KeyE' && !e.repeat && started && !paused) life.doAction();
-  if (e.code === 'KeyP' && !e.repeat && !shiftGame.isOn()) phone.isOpen() ? phone.close() : (started && !paused && phone.open());
+  if (e.code === 'KeyP' && !e.repeat && !shiftGame.isOn() && !hustle.overlayOn()) phone.isOpen() ? phone.close() : (started && !paused && phone.open());
   if (e.code === 'Escape' && phone.isOpen()) phone.close();
   if (e.code === 'KeyG') openNavPanel();
   if (e.code === 'Escape' && bigMap.classList.contains('on')) closeMap();
@@ -6280,6 +6610,7 @@ teleport(PLACES[0].x, PLACES[0].z);
 let terrFrame = 0, terrNext = 0;
 function frame(now) {
   requestAnimationFrame(frame);
+  if (overlayUp()) { last = now; sfx.update(0, 0, false); sfx.siren(0); return; } // a full-screen panel is up: the world can wait (saves battery)
   if ((terrFrame++ % 15) === 0) terrainizeScene();
   sky.position.copy(camera.position); sky.scale.setScalar(camera.far * 0.9);
   tickTime(paused || !started ? 0 : Math.min(0.05, (now - last) / 1000));
@@ -6325,7 +6656,7 @@ function frame(now) {
     updateHud(info);
     updateNav(dt, info.vf);
     chal.update(dt);
-    if (LIFE_ON()) { life.tick(dt / 60 * jobs.clockRate()); life.burn(); jobs.update(dt); police.update(dt, info); if ((mmFrame & 7) === 0) { life.scan(); life.hud(); jobs.hud(); jobs.tick(); } }
+    if (LIFE_ON()) { life.tick(dt / 60 * jobs.clockRate()); life.burn(); jobs.update(dt); hustle.update(dt); police.update(dt, info); if ((mmFrame & 7) === 0) { hustle.settleBets(); life.scan(); life.hud(); jobs.hud(); jobs.tick(); } }
     updatePoiLabels(dt);
     if (++mmFrame % 3 === 0) drawMinimap();
   }
