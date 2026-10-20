@@ -110,7 +110,7 @@
   #navBanner { display:none; position:absolute; left:max(12px, env(safe-area-inset-left)); top:max(12px, env(safe-area-inset-top)); width:min(430px, calc(100% - 210px)); background:#1d6b47; color:#fff; border-radius:16px; box-shadow:0 6px 22px rgba(0,0,0,.35); overflow:hidden; pointer-events:auto; }
   body.navigating #navBanner { display:block; }
   body.navigating .street { display:none; }
-  body.navigating #limit { top:calc(max(12px, env(safe-area-inset-top)) + 128px); }
+  body.navigating #limit, body.navigating #money { top:calc(max(12px, env(safe-area-inset-top)) + 128px); }
   .nbTop { display:flex; gap:12px; align-items:center; padding:12px 14px 10px; }
   #navArrow { width:46px; height:46px; flex:none; }
   #navArrow svg { width:100%; height:100%; color:#fff; }
@@ -172,6 +172,52 @@
   .carPick button.sel { border-color:var(--accent); box-shadow:0 0 0 2px rgba(242,163,58,.5); }
   @media (max-width: 520px) { #navBanner { width:calc(100% - 168px); } #navDist { font-size:20px; } #navText { font-size:13px; } #navArrow { width:38px; height:38px; } .nbBot { font-size:11px; } }
   .bmhint { font-size:12px; color:#555; font-weight:600; align-self:center; background:rgba(255,255,255,.8); padding:5px 10px; border-radius:999px; }
+  /* life: money, fuel, action button, phone */
+  #money, #fuelBox, #actBtn, #btnPhone, .lifeOnly { display:none; }
+  body.life #money, body.life #btnPhone { display:block; } body.life #btnPhone { display:grid; }
+  body.life:not(.onfoot) #fuelBox { display:block; }
+  body.life #actBtn.on { display:block; }
+  body:not(.freeMode) .carPick, body:not(.freeMode) .carPickLabel { display:none; }
+  body:not(.freeMode) .lifeOnly { display:block; }
+  #money { position:absolute; left:calc(max(14px, env(safe-area-inset-left)) + 54px); top:calc(max(12px, env(safe-area-inset-top)) + 70px); background:var(--panel); border:1px solid var(--line); border-radius:999px; padding:5px 12px; font-weight:900; font-size:16px; color:#7ee08a; font-variant-numeric:tabular-nums; pointer-events:auto; cursor:pointer; }
+  #money.neg { color:#ff7a6b; }
+  #fuelBox { position:absolute; left:50%; transform:translateX(-50%); bottom:calc(max(18px, env(safe-area-inset-bottom)) + 80px); width:150px; height:7px; border-radius:99px; background:rgba(0,0,0,.45); border:1px solid rgba(255,255,255,.25); overflow:hidden; }
+  #fuelBox::before { content:'⛽'; position:absolute; left:-22px; top:-6px; font-size:12px; }
+  #fuelBox { overflow:visible; } #fuelFill { display:block; height:100%; width:60%; background:#e8b81e; border-radius:99px; }
+  #fuelBox.low #fuelFill { background:#ff5a4a; animation:blink 1s infinite; }
+  @keyframes blink { 50% { opacity:.35; } }
+  body.touch #fuelBox { bottom:calc(max(16px, env(safe-area-inset-bottom)) + 68px); width:120px; }
+  #actBtn { position:absolute; left:50%; transform:translateX(-50%); bottom:calc(max(18px, env(safe-area-inset-bottom)) + 146px); background:var(--accent); color:#1a1206; border:0; border-radius:999px; padding:10px 18px; font-weight:900; font-size:15px; white-space:nowrap; pointer-events:auto; box-shadow:0 6px 20px rgba(0,0,0,.4); }
+  body:not(.touch) #actBtn::after { content:'  E'; opacity:.55; font-size:12px; }
+  #phone { position:fixed; inset:0; display:none; background:rgba(8,10,12,.6); padding:max(14px, env(safe-area-inset-top)) 12px max(14px, env(safe-area-inset-bottom)); pointer-events:auto; z-index:20; }
+  #phone.on { display:flex; justify-content:center; align-items:center; }
+  .phoneCase { width:100%; max-width:400px; height:100%; max-height:760px; background:#0f1317; border:3px solid #2a3038; border-radius:30px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 20px 60px rgba(0,0,0,.6); }
+  .phoneTop { display:flex; justify-content:space-between; align-items:center; padding:14px 16px 8px; }
+  .phoneTop b { font-size:18px; font-weight:900; }
+  .phoneTop button { border:0; background:rgba(255,255,255,.1); border-radius:10px; padding:7px 12px; font-weight:800; }
+  #phoneBody { flex:1; overflow:auto; padding:4px 14px 14px; -webkit-overflow-scrolling:touch; }
+  .phoneTabs { display:grid; grid-template-columns:repeat(4, 1fr); border-top:1px solid var(--line); }
+  .phoneTabs button { border:0; background:none; padding:10px 0 12px; font-size:11px; font-weight:800; opacity:.55; }
+  .phoneTabs button i { display:block; font-style:normal; font-size:20px; margin-bottom:2px; }
+  .phoneTabs button.sel { opacity:1; color:var(--accent); }
+  .pBig { font-size:40px; font-weight:900; color:#7ee08a; margin-top:6px; font-variant-numeric:tabular-nums; } .pBig.neg { color:#ff7a6b; }
+  .pSub { font-size:12.5px; opacity:.7; margin:3px 0; line-height:1.35; }
+  .pCard { position:relative; background:rgba(255,255,255,.06); border:1px solid var(--line); border-radius:14px; padding:11px 12px; margin:10px 0; }
+  .pCard.ok { border-color:rgba(126,224,138,.5); background:rgba(126,224,138,.08); }
+  .pCard > b { font-size:15px; }
+  .pR { position:absolute; right:12px; top:11px; font-weight:800; font-size:13px; opacity:.85; }
+  .pRow { display:flex; justify-content:space-between; gap:10px; font-size:13px; padding:6px 0; border-bottom:1px solid rgba(255,255,255,.06); }
+  .pRow small { opacity:.5; margin-left:4px; } .pRow span { font-weight:800; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .pRow.tot { border:0; font-weight:900; }
+  .pHead { font-size:12px; font-weight:900; letter-spacing:.1em; text-transform:uppercase; opacity:.6; margin:16px 0 4px; }
+  .neg { color:#ff7a6b; } .pos { color:#7ee08a; }
+  .pTag { font-size:10px; font-weight:900; background:#3a4049; border-radius:6px; padding:2px 5px; margin-left:4px; vertical-align:2px; }
+  .pUnits { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .pBtn { border:0; background:var(--accent); color:#1a1206; border-radius:10px; padding:10px 14px; font-weight:800; font-size:14px; margin-top:8px; }
+  .pUnits .pBtn { margin-top:0; }
+  .pBtn.sm { padding:7px 10px; font-size:12.5px; line-height:1.25; flex:1; min-width:0; }
+  .pBtn.ghost { background:rgba(255,255,255,.1); color:var(--ink); }
+  #phoneBody > .pBtn.ghost { width:100%; margin-top:14px; }
 </style>
 </head>
 <body>
@@ -189,6 +235,7 @@
   <div id="limit" style="display:none"><small>SPEED<br>LIMIT</small><b id="limitNum"></b></div>
   <canvas id="minimap" width="340" height="340"></canvas>
   <div class="tools">
+    <button id="btnPhone" aria-label="Phone"><svg viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M11 18.5h2"/></svg></button>
     <button id="btnNav" aria-label="Navigate"><svg viewBox="0 0 24 24"><path d="M3 11 21 3l-8 18-2-8z"/></svg></button>
     <button id="btnChal" aria-label="Challenges"><svg viewBox="0 0 24 24"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4v2a3 3 0 0 0 3 3M17 6h3v2a3 3 0 0 1-3 3M12 14v4M8 21h8M9 18h6"/></svg></button>
     <button id="btnMap" aria-label="Map"><svg viewBox="0 0 24 24"><path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z"/><path d="M9 4v14M15 6v14"/></svg></button>
@@ -202,6 +249,9 @@
   <div id="doorHint"><span class="kb">Press <b>F</b> to get in</span><span class="tc">Tap the door button to get in</span></div>
   <div class="speedo"><b id="speed">0</b><span>MPH</span></div>
   <div id="nitroBox"><i id="nitroFill"></i></div>
+  <div id="fuelBox"><i id="fuelFill"></i></div>
+  <button id="actBtn"></button>
+  <div id="money">$0</div>
   <div id="driftTag"></div>
   <div id="fxTag"></div>
 
@@ -222,6 +272,13 @@
 </div>
 
 <div id="toast"></div>
+<div id="phone">
+  <div class="phoneCase">
+    <div class="phoneTop"><b>📱 Phone</b><button id="phoneClose">Close</button></div>
+    <div id="phoneBody"></div>
+    <div class="phoneTabs"><button data-tab="bank"><i>🏦</i>Bank</button><button data-tab="homes"><i>🏢</i>Homes</button><button data-tab="cars"><i>🚗</i>Cars</button><button data-tab="garage"><i>🔑</i>Garage</button></div>
+  </div>
+</div>
 <div id="firstLoad"><b>Building the streets…</b>The first visit to a part of the metro pulls real map data, which can take up to a minute. After that it loads instantly.</div>
 
 <div id="navPanel">
@@ -250,7 +307,10 @@
     <p class="lede">Every street from Maple Grove and Plymouth to Woodbury, Brooklyn Park to Burnsville — real names, one-ways and speed limits from OpenStreetMap.</p>
     <label class="f" for="spawn">Start in</label>
     <select id="spawn"></select>
-    <label class="f">Car</label>
+    <label class="f" for="optMode">Game</label>
+    <select id="optMode"><option value="life">Life — earn, rent, buy cars (saved on this device)</option><option value="free">Free drive — any car, no money</option></select>
+    <div class="lifeOnly pSub" style="margin:6px 0 2px">You start with $3,500 and an old sedan. Your progress saves on this device. <a href="#" id="lifeReset" style="color:var(--accent)">Start over</a></div>
+    <label class="f carPickLabel">Car</label>
     <div class="carPick">
       <button data-car="sport"><b>Sports car</b><small>120 mph · 150 boosted</small></button>
       <button data-car="sedan"><b>Sedan</b><small>95 mph · easy handling</small></button>
@@ -276,7 +336,7 @@
     </div>
     <button id="startBtn">Drive</button>
     <div class="keys">
-      <span class="kb"><kbd>W A S D</kbd> / arrows drive · <kbd>Space</kbd> while turning to drift (hold the turn, let go to straighten — long drifts give a turbo) · <kbd>Shift</kbd> nitro · <kbd>C</kbd> camera · <kbd>F</kbd> get in / out · <kbd>T</kbd> +1 hour · <kbd>J</kbd> challenges · <kbd>M</kbd> map · <kbd>G</kbd> GPS · <kbd>R</kbd> back to road</span>
+      <span class="kb"><kbd>W A S D</kbd> / arrows drive · <kbd>Space</kbd> while turning to drift (hold the turn, let go to straighten — long drifts give a turbo) · <kbd>Shift</kbd> nitro · <kbd>C</kbd> camera · <kbd>F</kbd> get in / out · <kbd>P</kbd> phone · <kbd>E</kbd> action · <kbd>T</kbd> +1 hour · <kbd>J</kbd> challenges · <kbd>M</kbd> map · <kbd>G</kbd> GPS · <kbd>R</kbd> back to road</span>
       <span class="tc">Left thumb steers, right thumb gas / brake. Tap DRIFT while turning to slide, hold the turn, then let go for a turbo. Drifting refills NITRO. The arrow button opens GPS; the map button lets you jump anywhere.</span>
     </div>
     <div class="credit">Map data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> · Routing by OSRM · Search by Nominatim</div>
@@ -302,6 +362,6 @@
 </div>
 
 <script>window.TCD_STATIC = true;</script>
-<script type="module" src="game.js?v=39"></script>
+<script type="module" src="game.js?v=40"></script>
 </body>
 </html>

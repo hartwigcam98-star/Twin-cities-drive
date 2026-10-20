@@ -76,6 +76,15 @@ const nearPlace = (x, z) => { let b = null, bd = 1e18; for (const p of PLACES) {
 // ───────────────────────── settings ─────────────────────────
 const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 const settings = Object.assign({ radius: 1, buildings: true, trees: true, shadows: true, color: '#d6332a', car: 'sport' }, (() => { try { return JSON.parse(localStorage.getItem('tcd-settings') || '{}'); } catch { return {}; } })());
+// ── life mode: your money, home and cars (saved on this device) ──
+const LIFE_KEY = 'tcd-life';
+const LIFE = (() => {
+  let d = null; try { d = JSON.parse(localStorage.getItem(LIFE_KEY) || 'null'); } catch {}
+  return Object.assign({ v: 1, money: 3500, hours: 8, home: null, cars: [{ id: 1, type: 'beater', year: 2009, color: '#8a8f96', loan: null, name: '2009 Midsize Sedan' }], active: 0, log: [], nextId: 2, lastBill: 0, pos: null }, d || {});
+})();
+const LIFE_ON = () => settings.mode !== 'free';
+function vType() { const c = LIFE_ON() && LIFE.cars[LIFE.active]; return c ? c.type : settings.car; }
+function vColor() { const c = LIFE_ON() && LIFE.cars[LIFE.active]; return c ? c.color : settings.color; }
 // graphics: "light" (default on phones) trims roadside clutter, trees and fine detail so the game fits in a phone's memory
 const LOW = (settings.gfx || (isTouch ? 'low' : 'high')) === 'low';
 const saveSettings = () => { try { localStorage.setItem('tcd-settings', JSON.stringify(settings)); } catch {} };
@@ -2281,7 +2290,7 @@ function buildBillboards(t, d, frameBuf) {
 
 function buildBuildings(t, d) {
   if (t.bldMeshes) { for (const m of t.bldMeshes) { t.group.remove(m); m.geometry.dispose(); if (m.userData.tex) { m.userData.tex.dispose(); m.material.dispose(); } } t.blds.length = 0; t.bldGrid.clear(); }
-  t.bldMeshes = []; t.cluttered = false;
+  t.bldMeshes = []; t.cluttered = false; t.apts = [];
   const houseBuf = new GeoBuf(), faceBuf = new GeoBuf(), aoBuf = new GeoBuf(); faceBuf.facade = true;
   let seed = t.tx * 31 + t.ty * 17;
   const names = d.names || [];
@@ -2307,6 +2316,10 @@ function buildBuildings(t, d) {
       if (!lm && area > 3000) for (const l of LANDMARKS) if (l.at && inBox(l.x, l.z, box) && pointInPoly(l.x, l.z, pts)) { lm = l; break; }
       if (lm && lm.h && rec[11] === 0 && !minH) top = lm.h;
       const tag = rec[7] || '';
+      if ((tag === 'apartments' || (tag === 'residential' && top >= 9)) && area > 350 && !minH) { // a rentable apartment building
+        let cx = 0, cz = 0; for (let i = 0; i < pts.length; i += 2) { cx += pts[i]; cz += pts[i + 1]; }
+        t.apts.push({ name, x: cx * 2 / pts.length, z: cz * 2 / pts.length, h: top, area });
+      }
       const plain = lm ? lm.plain || lm.shape === 'bowl' : PLAIN_TAGS.has(tag) || (area > 8000 && top < 40) || (kind === 2 && area > 3000) || (tag === 'retail' && area > 2500 && top < 16);
       const isHouse = kind === 0 && !minH && top < 10;
       const o = { shape: rec[5] || '', roofH: +rec[8] || 0, holes: rec[9] || null };
@@ -2920,6 +2933,12 @@ function collideBuildings(pos, rad, withBerms = false, road = null) {
 const CARS = {
   sport: { label: 'Sports car', top: 63, boost: 80, accel: 14, boostAccel: 18, grip: 10.5, latG: 14, body: 0.75 },
   sedan: { label: 'Sedan', top: 52, boost: 66, accel: 8, boostAccel: 11, grip: 9, latG: 12.5, body: 1 },
+  beater: { label: 'Old sedan', top: 46, boost: 56, accel: 6.2, boostAccel: 8, grip: 8.5, latG: 11.5, body: 1.15 },
+  hatch: { label: 'Hatchback', top: 50, boost: 62, accel: 8.4, boostAccel: 11, grip: 9.5, latG: 12.8, body: 1 },
+  suv: { label: 'SUV', top: 52, boost: 64, accel: 8, boostAccel: 10.5, grip: 8.5, latG: 11, body: 1.25 },
+  pickup: { label: 'Pickup', top: 52, boost: 64, accel: 8.6, boostAccel: 11, grip: 8, latG: 10.5, body: 1.3 },
+  van: { label: 'Minivan', top: 49, boost: 60, accel: 7, boostAccel: 9.5, grip: 8.5, latG: 10.5, body: 1.3 },
+  lux: { label: 'Luxury sedan', top: 60, boost: 74, accel: 11, boostAccel: 14, grip: 10, latG: 13.5, body: 0.85 },
 };
 function sideProfile(pts) { const sh = new THREE.Shape(); sh.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) sh.lineTo(pts[i][0], pts[i][1]); sh.closePath(); return sh; }
 function extrudeAcross(pts, width, bevel) {
@@ -2986,6 +3005,41 @@ function makeSedan(color) {
   g.userData = { wheels, paint };
   return g;
 }
+// the rest of the lineup, built from boxes: [body w, h, len, y], [cabin w, h, len, z, y], wheel radius, axle z front/rear, extras
+const VSHAPE = {
+  beater: { body: [1.86, 0.6, 4.6, 0.64], cab: [1.62, 0.6, 2.25, -0.25, 1.24], r: 0.35, ax: [1.42, -1.42] },
+  hatch: { body: [1.8, 0.62, 4.15, 0.64], cab: [1.62, 0.64, 2.35, -0.38, 1.27], r: 0.34, ax: [1.3, -1.3] },
+  suv: { body: [1.94, 0.82, 4.65, 0.86], cab: [1.8, 0.72, 2.95, -0.32, 1.63], r: 0.41, ax: [1.45, -1.45] },
+  pickup: { body: [2.02, 0.84, 5.7, 0.9], cab: [1.88, 0.76, 1.95, 0.55, 1.7], r: 0.43, ax: [1.9, -1.65], bed: true },
+  van: { body: [1.98, 1.0, 5.1, 0.9], cab: [1.86, 0.78, 3.6, -0.45, 1.79], r: 0.37, ax: [1.6, -1.6] },
+  lux: { body: [1.92, 0.6, 5.0, 0.66], cab: [1.66, 0.58, 2.5, -0.3, 1.24], r: 0.38, ax: [1.55, -1.55], chrome: true },
+};
+function makeBoxCar(type, color) {
+  const V = VSHAPE[type], g = new THREE.Group();
+  const paint = new THREE.MeshPhongMaterial({ color, shininess: type === 'beater' ? 15 : 60, specular: '#555' });
+  const dark = new THREE.MeshLambertMaterial({ color: '#1d2126' }), glass = new THREE.MeshPhongMaterial({ color: '#22303d', shininess: 110, specular: '#99a' });
+  const rimMat = new THREE.MeshLambertMaterial({ color: V.chrome ? '#d9dde2' : '#9aa0a8' });
+  const [bw, bh, bl, by] = V.body, [cw, ch, cl, cz, cy] = V.cab;
+  const box = (w, h, l, x, y, z, m) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, l), m); o.position.set(x, y, z); g.add(o); return o; };
+  box(bw, bh, bl, 0, by, 0, paint);
+  box(cw, ch, cl, 0, cy, cz, glass); box(cw - 0.06, 0.08, cl - 0.25, 0, cy + ch / 2 + 0.03, cz, paint); // roof
+  for (const sx of [-1, 1]) box(0.06, ch * 0.9, 0.12, sx * (cw / 2 - 0.02), cy, cz + cl / 2 - 0.08, paint); // A-pillars
+  if (V.bed) { // pickup bed: two side walls and a tailgate around an open box
+    const bz0 = cz - cl / 2 - 0.05, bz1 = -bl / 2, len = bz0 - bz1, mz = (bz0 + bz1) / 2;
+    for (const sx of [-1, 1]) box(0.1, 0.5, len, sx * (bw / 2 - 0.05), by + bh / 2 + 0.25, mz, paint);
+    box(bw, 0.5, 0.1, 0, by + bh / 2 + 0.25, bz1 + 0.05, paint); box(bw - 0.2, 0.04, len - 0.1, 0, by + bh / 2 + 0.02, mz, dark);
+  }
+  box(bw + 0.04, 0.26, 0.18, 0, by - bh / 2 + 0.12, bl / 2 + 0.02, V.chrome ? rimMat : dark);
+  box(bw + 0.04, 0.26, 0.18, 0, by - bh / 2 + 0.12, -bl / 2 - 0.02, V.chrome ? rimMat : dark);
+  const hl = new THREE.MeshBasicMaterial({ color: '#fff7d6' }), tl = new THREE.MeshBasicMaterial({ color: '#d0121b' });
+  for (const sx of [-1, 1]) {
+    box(0.42, 0.15, 0.05, sx * (bw / 2 - 0.3), by + bh * 0.18, bl / 2 + 0.01, hl);
+    box(0.36, 0.16, 0.05, sx * (bw / 2 - 0.25), by + bh * 0.2 + (V.bed ? 0.25 : 0), -bl / 2 - 0.01, tl);
+  }
+  const wheels = makeWheels(g, dark, rimMat, V.r, [-(bw / 2 - 0.06), bw / 2 - 0.06], V.ax);
+  g.userData = { wheels, paint };
+  return g;
+}
 // split the model into wheels (stay on the road) and a sprung body that pitches, rolls and bounces around a
 // pivot near axle height; the whole car is lifted rigidly onto the terrain
 const BODY_PIV = 0.45;
@@ -3004,7 +3058,8 @@ let car = null;
 function setCar() {
   if (car) { car.remove(shadow); scene.remove(car); }
   if (!CARS[settings.car]) settings.car = 'sport';
-  car = settings.car === 'sedan' ? makeSedan(settings.color) : makeSportsCar(settings.color);
+  const ty = vType(), col = vColor();
+  car = ty === 'sedan' ? makeSedan(col) : VSHAPE[ty] ? makeBoxCar(ty, col) : makeSportsCar(col);
   rigCar(car);
   const pb = new THREE.Mesh(beamGeo, beamMat); pb.renderOrder = 2; car.add(pb);
   car.add(shadow); scene.add(car);
@@ -3034,7 +3089,7 @@ function physics(dt) {
   const loaded = ct && ct.state.r === 2;
   const offroad = loaded && !onRoad;
 
-  const C = CARS[settings.car] || CARS.sport, gf = wxGrip();
+  const C = CARS[vType()] || CARS.sport, gf = wxGrip();
   // ── arcade handling (after Asphalt / NFS No Limits / Mario Kart): nitro bar, assisted drifts, mini-turbos ──
   const steerIn = input.right - input.left;
   const wantBoost = input.boost && S.nitro > 0.02;
@@ -3046,6 +3101,7 @@ function physics(dt) {
   const maxF = (boosting ? C.boost : C.top) * (offroad ? 0.45 : 1);
   let throttle = input.up - input.down;
   if (settings.autoGas && isTouch && throttle === 0 && !input.brake) throttle = 1;
+  if (throttle > 0 && life.outOfGas()) throttle = 0; // empty tank
   S.throttle = throttle;
   const spd = Math.hypot(vf, vl);
   // drift: tap DRIFT (Space) while turning at speed; hold the turn to keep it, let go to straighten out
@@ -3164,7 +3220,7 @@ function physics(dt) {
 // texture (asphalt ripple, concrete joints, rumble strips, grass) on damped springs; the wheels stay planted ──
 const roadProfile = s => Math.sin(s * 1.7) + 0.6 * Math.sin(s * 3.9 + 1) + 0.4 * Math.sin(s * 0.83 + 2) + 0.3 * Math.sin(s * 7.3 + 4);
 function suspension(dt, vf, surf, offroad, air) {
-  const C = CARS[settings.car] || CARS.sport, k = C.body;
+  const C = CARS[vType()] || CARS.sport, k = C.body;
   const spd = Math.hypot(S.vx, S.vz);
   const aRaw = Math.max(-30, Math.min(30, (vf - S.vfPrev) / dt)); S.vfPrev = vf;
   S.aL += (aRaw - S.aL) * Math.min(1, dt * 10);
@@ -3421,7 +3477,7 @@ let camInit = false;
 let boostE = 0, camHd = null, fovE = 62;
 const shakeN = (t, s) => Math.sin(t * 13.1 + s) * 0.5 + Math.sin(t * 27.7 + s * 2.3) * 0.3 + Math.sin(t * 7.3 + s * 3.7) * 0.2;
 function updateCamera(dt, vf) {
-  const C = CARS[settings.car] || CARS.sport;
+  const C = CARS[vType()] || CARS.sport;
   const spd = Math.hypot(S.vx, S.vz), sp = Math.min(1, spd / C.top);
   boostE += ((S.boosting ? 1 : 0) - boostE) * Math.min(1, dt * 3);
   // chase cams swing toward the direction of travel, so a drift shows the car sideways
@@ -3512,7 +3568,7 @@ const slCtx = slCan.getContext('2d');
 const slSeeds = Array.from({ length: 46 }, () => [Math.random() * Math.PI * 2, Math.random(), Math.random()]);
 const SMOKE = [0.85, 0.85, 0.83], SPARK = [[1, 1, 1], [0.35, 0.75, 1], [1, 0.62, 0.15]];
 function updateFx(dt, info) {
-  const C = CARS[settings.car] || CARS.sport;
+  const C = CARS[vType()] || CARS.sport;
   const spd = Math.hypot(S.vx, S.vz), fx = Math.sin(S.h), fz = Math.cos(S.h), lx = Math.cos(S.h), lz = -Math.sin(S.h);
   const slip = Math.abs(info.slide || 0), burnout = S.throttle > 0 && spd < 6 && input.brake;
   const sliding = !paused && S.mode !== 'foot' && S.y < 0.5 + (surfaceAt(S.x, S.z, S.y + 1)?.h || 0) && (S.drift || slip > 3.5 || burnout) && spd > 2;
@@ -4144,6 +4200,12 @@ function drawMinimap() {
     const dl = Math.hypot(dx, dz), k = dl > R - 14 ? (R - 14) / dl : 1;
     mmc.fillStyle = '#e8402f'; mmc.beginPath(); mmc.arc(R + (dx * ca - dz * sa) * k, R + (dx * sa + dz * ca) * k, 7, 0, Math.PI * 2); mmc.fill();
   }
+  if (LIFE_ON() && LIFE.home) { // home, pinned to the rim when off the minimap
+    const dx = (LIFE.home.x - S.x) * scale, dz = (LIFE.home.z - S.z) * scale;
+    const dl = Math.hypot(dx, dz), k = dl > R - 14 ? (R - 14) / dl : 1;
+    mmc.font = '15px system-ui'; mmc.textAlign = 'center'; mmc.textBaseline = 'middle';
+    mmc.fillText('🏠', R + (dx * ca - dz * sa) * k, R + (dx * sa + dz * ca) * k);
+  }
   // car arrow
   mmc.fillStyle = '#e8402f'; mmc.strokeStyle = '#fff'; mmc.lineWidth = 2;
   mmc.beginPath(); mmc.moveTo(R, R - 9); mmc.lineTo(R + 6, R + 7); mmc.lineTo(R, R + 3); mmc.lineTo(R - 6, R + 7); mmc.closePath(); mmc.fill(); mmc.stroke();
@@ -4671,6 +4733,260 @@ document.querySelectorAll('[data-cat]').forEach(b => b.onclick = () => nearbyCat
 $('btnNav').onclick = openNavPanel;
 $('navEnd').onclick = () => endNav('Navigation ended');
 
+// ───────────────────────── life: money, your apartment, your cars, gas, weekly bills ─────────────────────────
+// Prices are 2026 Twin Cities figures: average rents by city/neighbourhood (RentCafe, Sept–Oct 2026), new/used car
+// prices (Kelley Blue Book), Minnesota gas ($4.18/gal, Oct 2026), 6.875% vehicle sales tax. Game time: a week is 7 game
+// days (one game hour per real minute); rent is charged weekly at the monthly rate × 12 / 52.
+const RENT_AREAS = [ // average monthly rent (all unit sizes)
+  ['Downtown Minneapolis', 44.9765, -93.2700, 2016], ['North Loop', 44.9880, -93.2760, 2159], ['Uptown', 44.9490, -93.2980, 1734], ['Loring Park', 44.9690, -93.2830, 1448],
+  ['Lowry Hill', 44.9660, -93.2930, 1457], ['Cedar-Isles-Dean', 44.9600, -93.3110, 2565], ['Whittier', 44.9550, -93.2790, 1334], ['Stevens Square', 44.9610, -93.2740, 1053],
+  ['Phillips', 44.9550, -93.2600, 1369], ['Seward', 44.9600, -93.2350, 1203], ['Longfellow', 44.9400, -93.2200, 1304], ['Linden Hills', 44.9250, -93.3200, 1302],
+  ['Dinkytown', 44.9810, -93.2360, 2098], ['Marcy-Holmes', 44.9870, -93.2480, 2019], ['Northeast', 45.0050, -93.2600, 1550], ['Near North', 44.9900, -93.3000, 1852],
+  ['Richfield', 44.8833, -93.2830, 1449], ['St. Paul', 44.9497, -93.0925, 1545], ['St. Louis Park', 44.9483, -93.3480, 1816], ['Edina', 44.8897, -93.3499, 1873],
+  ['Bloomington', 44.8408, -93.2983, 1691], ['Burnsville', 44.7677, -93.2777, 1555], ['Plymouth', 45.0105, -93.4555, 1809], ['Minnetonka', 44.9133, -93.4700, 2052],
+  ['Eagan', 44.8041, -93.1669, 1686], ['Eden Prairie', 44.8547, -93.4708, 1812], ['Maple Grove', 45.0725, -93.4558, 2284], ['Woodbury', 44.9239, -92.9594, 2168],
+  ['Oakdale', 44.9630, -92.9649, 1802], ['Maplewood', 44.9530, -92.9952, 1474], ['Roseville', 45.0061, -93.1566, 1478], ['West St. Paul', 44.9161, -93.1016, 1405],
+  ['Brooklyn Park', 45.0941, -93.3563, 1415], ['Brooklyn Center', 45.0761, -93.3327, 1361], ['Robbinsdale', 45.0322, -93.3386, 1523], ['Fridley', 45.0861, -93.2633, 1493],
+  ['New Brighton', 45.0655, -93.2019, 1373], ['Golden Valley', 45.0097, -93.3491, 1700], ['Hopkins', 44.9247, -93.4180, 1650], ['Crystal', 45.0327, -93.3602, 1450],
+  ['New Hope', 45.0380, -93.3866, 1450], ['Savage', 44.7792, -93.3366, 1650], ['Mendota Heights', 44.8836, -93.1383, 1800], ['South St. Paul', 44.8927, -93.0350, 1350],
+  ['Inver Grove Heights', 44.8480, -93.0427, 1500], ['North St. Paul', 45.0125, -92.9919, 1400], ['Shoreview', 45.0791, -93.1472, 1600], ['White Bear Lake', 45.0847, -93.0099, 1450],
+].map(([n, la, lo, rent]) => { const [x, z] = proj(la, lo); return { n, x, z, rent }; });
+const rentArea = (x, z) => { let b = RENT_AREAS[0], bd = 1e18; for (const a of RENT_AREAS) { const d = (a.x - x) ** 2 + (a.z - z) ** 2; if (d < bd) { bd = d; b = a; } } return b; };
+const UNITS = [['Studio', 0.84], ['1 bedroom', 1], ['2 bedroom', 1.3]];
+const aptFactor = a => a.h > 45 ? 1.15 : a.h > 20 ? 1.05 : a.h < 12 ? 0.9 : 1;
+const aptRent = (a, u) => Math.round(rentArea(a.x, a.z).rent * UNITS[u][1] * aptFactor(a) / 5) * 5;
+// the lineup: knock-off names, 2026 prices. type → model and handling (CARS); used cars are older and cheaper
+const CATALOG = [
+  { k: 'u-beater', type: 'beater', name: '2009 Midsize Sedan', year: 2009, price: 6800, used: true },
+  { k: 'u-hatch', type: 'hatch', name: '2015 Hondah Civvy', year: 2015, price: 11900, used: true },
+  { k: 'u-van', type: 'van', name: '2017 Chryzler Pacifico', year: 2017, price: 14500, used: true },
+  { k: 'u-pickup', type: 'pickup', name: '2013 Ferd F-15', year: 2013, price: 15900, used: true },
+  { k: 'u-suv', type: 'suv', name: '2016 Toyoda Rav-Fore', year: 2016, price: 16500, used: true },
+  { k: 'hatch', type: 'hatch', name: '2026 Hondah Civvy', year: 2026, price: 25400 },
+  { k: 'sedan', type: 'sedan', name: '2026 Toyoda Kamry', year: 2026, price: 29800 },
+  { k: 'suv', type: 'suv', name: '2026 Toyoda Rav-Fore', year: 2026, price: 31900 },
+  { k: 'van', type: 'van', name: '2026 Chryzler Pacifico', year: 2026, price: 44400 },
+  { k: 'pickup', type: 'pickup', name: '2026 Ferd F-15', year: 2026, price: 45500 },
+  { k: 'lux', type: 'lux', name: '2026 Lexxus ES', year: 2026, price: 49900 },
+  { k: 'sport', type: 'sport', name: '2026 Corvetta Stingrey', year: 2026, price: 69800 },
+];
+const MPG = { beater: 24, hatch: 33, sedan: 32, suv: 28, pickup: 20, van: 24, lux: 26, sport: 18 }, TANK = 14, GAS = 4.18, TAX = 0.06875;
+const INSURE_WK = 37, APR = 0.075, LOAN_MONTHS = 60, DELIVERY = 499;
+const NOT_DEALER = /\b(parts|zone|wash|repair|tire|tires|glass|body|collision|service|rental|rent-a|lube|oil|detail|insurance|audio|upholstery)\b/i;
+const DEALER_RE = /\b(toyota|honda|ford|chevrolet|chevy|nissan|hyundai|kia|subaru|bmw|mercedes|audi|lexus|volkswagen|vw|mazda|chrysler|dodge|jeep|ram|buick|gmc|cadillac|lincoln|volvo|tesla|porsche|acura|infiniti|genesis|mitsubishi|carmax|carvana|auto sales|motors|dealership|autos?)\b/i;
+const money = v => (v < 0 ? '−$' : '$') + Math.abs(Math.round(v)).toLocaleString('en-US');
+const life = (() => {
+  const L = LIFE;
+  function plate() { const A = 'ABCDEFGHJKLMNPRSTUVWXYZ'; let p = ''; for (let i = 0; i < 3; i++) p += A[(Math.random() * A.length) | 0]; return p + '-' + String(100 + ((Math.random() * 900) | 0)); }
+  for (const c of L.cars) { if (c.fuel == null) c.fuel = TANK * 0.6; if (!c.plate) c.plate = plate(); if (c.paid == null) c.paid = 6800; }
+  let dirty = false, saveT = 0;
+  const save = () => { dirty = false; try { localStorage.setItem(LIFE_KEY, JSON.stringify(L)); } catch {} };
+  const touch = () => { dirty = true; };
+  const note = (a, d) => { L.log.unshift({ h: L.hours, a, d }); if (L.log.length > 60) L.log.length = 60; };
+  const pay = (amt, desc) => { L.money -= amt; note(-amt, desc); touch(); hud(); };
+  const earn = (amt, desc) => { L.money += amt; note(amt, desc); touch(); hud(); };
+  function hud() {
+    const on = LIFE_ON() && started; document.body.classList.toggle('life', on);
+    if (!on) return;
+    const el = $('money'); el.textContent = money(L.money); el.classList.toggle('neg', L.money < 0);
+    const c = L.cars[L.active]; $('fuelFill').style.width = c ? Math.max(0, Math.min(100, c.fuel / TANK * 100)).toFixed(0) + '%' : '0%';
+    $('fuelBox').classList.toggle('low', !!c && c.fuel < TANK * 0.12);
+  }
+  const weekly = () => {
+    const rent = L.home ? Math.round(L.home.rent * 12 / 52) : 0; let loans = 0;
+    for (const c of L.cars) if (c.loan && c.loan.left > 0) loans += c.loan.weekly;
+    const ins = INSURE_WK * L.cars.length;
+    return { rent, loans: Math.round(loans), ins, total: rent + Math.round(loans) + ins };
+  };
+  // ── the clock: bills every 7 game days ──
+  function tick(dtHours) {
+    if (!LIFE_ON() || !started) return;
+    L.hours += dtHours;
+    if (!L.lastBill) L.lastBill = L.hours;
+    if (L.hours - L.lastBill >= 168) {
+      L.lastBill += 168;
+      const w = weekly();
+      if (w.rent) pay(w.rent, `Rent — ${L.home.name}`);
+      for (const c of L.cars) if (c.loan && c.loan.left > 0) { const amt = Math.min(c.loan.weekly, c.loan.left); c.loan.left -= amt; pay(amt, `Car payment — ${c.name}`); }
+      if (w.ins) pay(w.ins, 'Car insurance');
+      if (L.money < 0) { pay(35, 'Overdraft fee'); L.late = (L.late || 0) + 1; } else L.late = 0;
+      if (L.late >= 2) evict();
+      toast(`Weekly bills: ${money(w.total)} · balance ${money(L.money)}`);
+    }
+    saveT -= dtHours * 60;
+    if (saveT <= 0) { saveT = 20; L.pos = { x: S.x, z: S.z, h: S.h }; save(); }
+  }
+  function evict() {
+    L.late = 0;
+    if (L.home) { toast(`Evicted from ${L.home.name} — two weeks behind`); L.home = null; }
+    const fin = L.cars.findIndex(c => c.loan && c.loan.left > 0);
+    if (fin >= 0 && L.cars.length > 1) { toast(`${L.cars[fin].name} repossessed`); removeCar(fin); }
+    touch();
+  }
+  function removeCar(i) {
+    const was = L.active;
+    L.cars.splice(i, 1);
+    if (was === i) { L.active = 0; setCar(); terrainizeScene(); } else if (was > i) L.active = was - 1;
+    touch();
+  }
+  // ── fuel: burned by distance, refilled at gas stations ──
+  let lastX = null, lastZ = null;
+  function burn() {
+    const c = L.cars[L.active]; if (!c || S.mode === 'foot' || !LIFE_ON() || !started) { lastX = null; return; }
+    if (lastX !== null) { const d = Math.hypot(S.x - lastX, S.z - lastZ); if (d < 200) c.fuel = Math.max(0, c.fuel - d / ((MPG[c.type] || 25) * 1609)); }
+    lastX = S.x; lastZ = S.z;
+    if (c.fuel <= 0 && !L.emptyWarned) { L.emptyWarned = true; toast('Out of gas — walk to a gas station, or order roadside gas on your phone'); }
+    if (c.fuel > 0.3) L.emptyWarned = false;
+  }
+  const outOfGas = () => LIFE_ON() && S.mode !== 'foot' && !!L.cars[L.active] && L.cars[L.active].fuel <= 0;
+  // ── what's around you: gas stations, dealers, apartment buildings ──
+  function nearby(kind, R) {
+    let best = null, bd = R;
+    for (const t of tiles.values()) {
+      if (kind === 'apt') { for (const a of t.apts || []) { const d = Math.hypot(a.x - S.x, a.z - S.z); if (d < bd) { bd = d; best = a; } } continue; }
+      for (const p of t.pois || []) {
+        if (kind === 'gas' ? p.c !== 2 : !(p.c === 3 && DEALER_RE.test(p.name) && !NOT_DEALER.test(p.name))) continue;
+        const d = Math.hypot(p.x - S.x, p.z - S.z); if (d < bd) { bd = d; best = p; }
+      }
+    }
+    return best;
+  }
+  let act = null; // the action for where you are, shown on the action button (E)
+  function scan() {
+    const btn = $('actBtn');
+    if (!LIFE_ON() || !started || paused) { if (act) { act = null; btn.classList.remove('on'); } return; }
+    const spd = Math.hypot(S.vx, S.vz), c = L.cars[L.active];
+    let a = null;
+    if (L.home && Math.hypot(L.home.x - S.x, L.home.z - S.z) < 45 && spd < 2) a = { label: '🛏 Sleep until morning', fn: sleep };
+    else if (S.mode !== 'foot' && spd < 1.5 && c && c.fuel < TANK - 0.5) { const g = nearby('gas', 30); if (g) a = { label: `⛽ Fill up · ${money((TANK - c.fuel) * GAS)}`, fn: fillUp }; }
+    if (!a && spd < 3) { const d = nearby('dealer', 70); if (d) a = { label: `🚗 Shop at ${d.name}`, fn: () => phone.open('cars') }; }
+    if (!a && spd < 2 && S.mode === 'foot') { const ap = nearby('apt', 45); if (ap && !(L.home && Math.hypot(L.home.x - ap.x, L.home.z - ap.z) < 5)) a = { label: `🏢 ${ap.name || 'Apartments'} · see units`, fn: () => phone.open('homes', ap) }; }
+    if ((a && a.label) !== (act && act.label)) { act = a; btn.textContent = a ? a.label : ''; btn.classList.toggle('on', !!a); }
+  }
+  function doAction() { if (act) act.fn(); }
+  function fillUp() {
+    const c = L.cars[L.active]; if (!c) return;
+    const gal = TANK - c.fuel, cost = gal * GAS;
+    if (L.money < cost) { const can = Math.max(0, L.money / GAS); if (can < 0.5) { toast("You can't afford gas"); return; } c.fuel += can; pay(can * GAS, `Gas ${can.toFixed(1)} gal`); toast(`Put in ${can.toFixed(1)} gal — all you could afford`); return; }
+    c.fuel = TANK; pay(cost, `Gas ${gal.toFixed(1)} gal @ $${GAS}`); toast(`Filled up: ${gal.toFixed(1)} gal, ${money(cost)}`); buzz(20);
+  }
+  function sleep() {
+    const h = tod, add = h < 7 ? 7 - h : 31 - h;
+    tod = 7; applyTime(tod); tick(add);
+    L.pos = { x: S.x, z: S.z, h: S.h }; save();
+    toast(`Slept ${Math.round(add)} hours · it's 7:00 AM · game saved`); flashTag('GOOD MORNING');
+  }
+  // ── signing a lease, buying and selling cars ──
+  function rentHome(ap, unit) {
+    const rent = aptRent(ap, unit), wk = Math.round(rent * 12 / 52), deposit = rent + wk, area = rentArea(ap.x, ap.z);
+    if (L.money < deposit) { toast(`You need ${money(deposit)} for the deposit and first week`); return; }
+    if (L.home && !confirm(`Move out of ${L.home.name}?`)) return;
+    pay(rent, `Security deposit — ${ap.name || 'apartment'}`); pay(wk, `First week's rent`);
+    L.home = { name: ap.name || `Apartments in ${area.n}`, x: ap.x, z: ap.z, rent, unit: UNITS[unit][0], area: area.n };
+    L.lastBill = L.hours; touch(); save();
+    toast(`Welcome home: ${L.home.unit} at ${L.home.name}`); flashTag('NEW HOME');
+  }
+  function quote(it) {
+    const tax = Math.round(it.price * TAX), total = it.price + tax, down = Math.round(total * 0.1);
+    const r = APR / 12, m = (total - down) * r / (1 - Math.pow(1 + r, -LOAN_MONTHS));
+    return { tax, total, down, monthly: Math.round(m), weekly: Math.round(m * 12 / 52), owed: Math.round(m * LOAN_MONTHS) };
+  }
+  function buyCar(it, finance, atDealer, color) {
+    const q = quote(it), fee = atDealer ? 0 : DELIVERY, up = (finance ? q.down : q.total) + fee;
+    if (L.money < up) { toast(`You need ${money(up)}${finance ? ' down' : ''}`); return false; }
+    pay(finance ? q.down : q.total, `${finance ? 'Down payment' : 'Bought'} — ${it.name}`); if (fee) pay(fee, 'Delivery');
+    L.cars.push({ id: L.nextId++, type: it.type, name: it.name, year: it.year, color: color || '#c9ccd1', fuel: TANK, plate: plate(), paid: it.price, loan: finance ? { left: q.owed, weekly: q.weekly } : null });
+    touch(); save();
+    toast(`${it.name} is yours${finance ? ` — ${money(q.weekly)}/week for 5 years` : ''} · find it in Garage`); flashTag('NEW CAR');
+    return true;
+  }
+  const atHome = () => !!L.home && Math.hypot(L.home.x - S.x, L.home.z - S.z) < 80;
+  function switchCar(i) {
+    if (i === L.active) return;
+    if (S.mode === 'foot') { toast('Get in your car first'); return; }
+    if (!atHome()) { if (L.money < 60) { toast('Valet delivery costs $60'); return; } pay(60, 'Valet: car swap'); }
+    L.active = i; touch(); setCar(); terrainizeScene(); hud(); toast(`Driving the ${L.cars[i].name}`);
+  }
+  function sellValue(c) { const age = Math.max(0, 2026 - c.year); return Math.round((c.paid || 8000) * Math.max(0.25, 0.8 - age * 0.05) / 50) * 50; }
+  function sellCar(i) {
+    const c = L.cars[i]; if (L.cars.length < 2) { toast("You can't sell your only car"); return; }
+    const val = sellValue(c), owe = c.loan ? c.loan.left : 0;
+    if (!confirm(`Sell the ${c.name} for ${money(val)}${owe ? ` (pays off the ${money(owe)} loan)` : ''}?`)) return;
+    earn(val, `Sold ${c.name}`); if (owe) pay(owe, `Loan payoff — ${c.name}`);
+    removeCar(i); save();
+  }
+  function gasCan() { const c = L.cars[L.active]; if (!c) return; if (L.money < 45) { toast('Roadside gas costs $45'); return; } pay(45, 'Roadside gas (2 gal)'); c.fuel = Math.min(TANK, c.fuel + 2); toast('2 gallons delivered'); hud(); }
+  return { L, tick, burn, scan, doAction, hud, weekly, rentHome, quote, buyCar, switchCar, sellCar, sellValue, save, outOfGas, nearby, pay, earn, touch, gasCan, atHome };
+})();
+// ── the phone: Bank, Homes, Cars, Garage ──
+const phone = (() => {
+  const P = $('phone'), body = $('phoneBody'), tabs = [...P.querySelectorAll('[data-tab]')];
+  let tab = 'bank', ctx = null, apts = [], dealer = false;
+  const L = LIFE, esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const ago = h => { const d = L.hours - h; return d < 1 ? 'just now' : d < 24 ? `${Math.round(d)} h ago` : `${Math.round(d / 24)} d ago`; };
+  function render() {
+    tabs.forEach(b => b.classList.toggle('sel', b.dataset.tab === tab));
+    const w = life.weekly(), due = Math.max(0, 168 - (L.hours - (L.lastBill || L.hours)));
+    let h = '';
+    if (tab === 'bank') {
+      h += `<div class="pBig ${L.money < 0 ? 'neg' : ''}">${money(L.money)}</div><div class="pSub">Checking · Day ${Math.floor(L.hours / 24) + 1}, ${clockText()}</div>`;
+      h += `<div class="pCard"><b>Weekly bills</b><span class="pR">due in ${due < 24 ? Math.round(due) + ' h' : Math.round(due / 24) + ' days'}</span>`;
+      h += `<div class="pRow">Rent<span>${money(w.rent)}</span></div><div class="pRow">Car loans<span>${money(w.loans)}</span></div><div class="pRow">Insurance<span>${money(w.ins)}</span></div><div class="pRow tot">Total<span>${money(w.total)}</span></div></div>`;
+      h += '<div class="pHead">Activity</div>' + (L.log.length ? L.log.map(e => `<div class="pRow">${esc(e.d)} <small>${ago(e.h)}</small><span class="${e.a < 0 ? 'neg' : 'pos'}">${e.a < 0 ? '−' : '+'}${money(Math.abs(e.a))}</span></div>`).join('') : '<div class="pSub">Nothing yet.</div>');
+      h += `<button class="pBtn ghost" data-act="gascan">⛽ Roadside gas delivery · $45</button>`;
+    } else if (tab === 'homes') {
+      if (L.home) h += `<div class="pCard ok"><b>🏠 ${esc(L.home.name)}</b><div class="pSub">${esc(L.home.unit)} · ${esc(L.home.area)} · ${money(L.home.rent)}/month (${money(L.home.rent * 12 / 52)}/week)</div><button class="pBtn sm" data-act="navhome">Navigate home</button></div>`;
+      else h += `<div class="pCard"><b>No place of your own yet</b><div class="pSub">You're crashing on a friend's couch. Rent an apartment and you get somewhere to sleep (skips to morning and saves the game) and to swap cars for free.</div></div>`;
+      const list = [];
+      for (const t of tiles.values()) for (const a of t.apts || []) { const d = Math.hypot(a.x - S.x, a.z - S.z); if (d < 3500) list.push({ a, d: a === ctx ? -1 : d - (a.name ? 400 : 0) }); }
+      list.sort((x, y) => x.d - y.d);
+      const seen = new Set(); apts = [];
+      for (const it of list) { const k = (it.a.name || '') + Math.round(it.a.x / 80) + ',' + Math.round(it.a.z / 80); if (seen.has(k)) continue; seen.add(k); apts.push(it.a); if (apts.length >= 14) break; }
+      h += `<div class="pHead">For rent near you</div>`;
+      if (!apts.length) h += '<div class="pSub">No apartment buildings mapped around here — try heading toward a city centre.</div>';
+      apts.forEach((a, i) => {
+        const area = rentArea(a.x, a.z), d = Math.hypot(a.x - S.x, a.z - S.z);
+        h += `<div class="pCard"><b>${esc(a.name || 'Apartments')}</b><span class="pR">${fmtDist(d)}</span><div class="pSub">${esc(area.n)} · ${Math.max(2, Math.round(a.h / 3.2))} floors${a.h > 45 ? ' · luxury tower' : ''}</div><div class="pUnits">`;
+        UNITS.forEach(([u], j) => { h += `<button class="pBtn sm" data-act="rent" data-i="${i}" data-u="${j}">${u}<br><b>${money(aptRent(a, j))}</b>/mo</button>`; });
+        h += `</div><button class="pBtn ghost sm" data-act="navapt" data-i="${i}">Navigate</button></div>`;
+      });
+    } else if (tab === 'cars') {
+      const dl = life.nearby('dealer', 90); dealer = !!dl;
+      h += dl ? `<div class="pCard ok"><b>🚗 At ${esc(dl.name)}</b><div class="pSub">Buy here and drive it off the lot — no delivery fee.</div></div>` : `<div class="pSub">Shopping online adds ${money(DELIVERY)} delivery. Stop at a car dealership to skip the fee.</div>`;
+      CATALOG.forEach((it, i) => {
+        const q = life.quote(it), C = CARS[it.type], fee = dealer ? 0 : DELIVERY;
+        h += `<div class="pCard"><b>${esc(it.name)}</b>${it.used ? ' <span class="pTag">USED</span>' : ''}<span class="pR">${money(it.price)}</span><div class="pSub">${C.label} · top ${Math.round(C.top * 2.237)} mph · ${MPG[it.type]} mpg · + ${money(q.tax)} tax</div>`;
+        h += `<div class="pUnits"><button class="pBtn sm" data-act="buy" data-i="${i}">Pay ${money(q.total + fee)}</button><button class="pBtn sm ghost" data-act="fin" data-i="${i}">Finance · ${money(q.down + fee)} down<br>${money(q.weekly)}/week</button></div></div>`;
+      });
+    } else if (tab === 'garage') {
+      L.cars.forEach((c, i) => {
+        h += `<div class="pCard${i === L.active ? ' ok' : ''}"><b>${esc(c.name)}</b><span class="pR">${esc(c.plate)}</span><div class="pSub">${CARS[c.type] ? CARS[c.type].label : ''} · ⛽ ${Math.round(c.fuel / TANK * 100)}%${c.loan && c.loan.left > 0 ? ` · ${money(c.loan.left)} left on loan (${money(c.loan.weekly)}/wk)` : ' · paid off'} · worth ${money(life.sellValue(c))}</div>`;
+        h += `<div class="pUnits">${i === L.active ? '<span class="pSub">Driving this one</span>' : `<button class="pBtn sm" data-act="drive" data-i="${i}">Drive this${life.atHome() ? '' : ' · $60 valet'}</button>`}<button class="pBtn sm ghost" data-act="sell" data-i="${i}">Sell</button></div></div>`;
+      });
+    }
+    body.innerHTML = h;
+  }
+  body.onclick = e => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    const a = b.dataset.act, i = +b.dataset.i;
+    if (a === 'rent') { life.rentHome(apts[i], +b.dataset.u); render(); }
+    else if (a === 'navapt') { const ap = apts[i]; close(); startNav(ap.x, ap.z, ap.name || 'Apartments'); }
+    else if (a === 'navhome') { close(); startNav(LIFE.home.x, LIFE.home.z, LIFE.home.name); }
+    else if (a === 'buy' || a === 'fin') { if (life.buyCar(CATALOG[i], a === 'fin', dealer, settings.color)) tab = 'garage'; render(); }
+    else if (a === 'drive') { life.switchCar(i); render(); }
+    else if (a === 'sell') { life.sellCar(i); render(); }
+    else if (a === 'gascan') { life.gasCan(); render(); }
+  };
+  tabs.forEach(b => b.onclick = () => { tab = b.dataset.tab; ctx = null; render(); });
+  function open(t, c) { if (!LIFE_ON() || !started) return; if (t) tab = t; ctx = c || null; P.classList.add('on'); paused = true; render(); }
+  function close() { P.classList.remove('on'); paused = false; last = performance.now(); }
+  $('phoneClose').onclick = close; $('btnPhone').onclick = () => open();
+  return { open, close, isOpen: () => P.classList.contains('on') };
+})();
+$('actBtn').onclick = () => life.doAction();
+$('money').onclick = () => phone.open('bank');
+window.__life = life; window.__phone = phone;
+
 // ───────────────────────── challenges: timed runs, checkpoint rush, landmark hunt ─────────────────────────
 const DISCOVER = [
   ['Stone Arch Bridge', 44.9806, -93.2533], ['Guthrie Theater', 44.9780, -93.2551], ['Mill City Museum', 44.9789, -93.2570],
@@ -4852,6 +5168,9 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyT') { tod = (Math.floor(tod) + 1) % 24; applyTime(tod); toast(clockText()); }
   if (e.code === 'KeyM') bigMap.classList.contains('on') ? closeMap() : openMap();
   if (e.code === 'KeyR') respawnOnRoad();
+  if (e.code === 'KeyE' && !e.repeat && started && !paused) life.doAction();
+  if (e.code === 'KeyP' && !e.repeat) phone.isOpen() ? phone.close() : (started && !paused && phone.open());
+  if (e.code === 'Escape' && phone.isOpen()) phone.close();
   if (e.code === 'KeyG') openNavPanel();
   if (e.code === 'Escape' && bigMap.classList.contains('on')) closeMap();
 });
@@ -4871,15 +5190,16 @@ $('btnDoor').onclick = toggleFoot;
 // character picker (Golf Go roster)
 { const cs = $('optChar'); for (const [id, name] of CHAR_LIST) { const o = document.createElement('option'); o.value = id; o.textContent = name; cs.appendChild(o); }
   cs.value = settings.char || 'ch01'; cs.onchange = e => { settings.char = e.target.value; saveSettings(); if (S.mode === 'foot') useCharacter(settings.char); }; }
-$('btnMenu').onclick = () => { paused = true; sfx.pause(true); $('menu').classList.add('on'); $('startBtn').textContent = 'Resume'; };
+$('btnMenu').onclick = () => { if (LIFE_ON() && started) { LIFE.pos = { x: S.x, z: S.z, h: S.h }; life.save(); } if (phone.isOpen()) phone.close(); paused = true; sfx.pause(true); $('menu').classList.add('on'); $('startBtn').textContent = 'Resume'; };
 if (isTouch) document.body.classList.add('touch');
 
 // ───────────────────────── menu ─────────────────────────
 const sel = $('spawn');
+if (LIFE.pos && settings.mode !== 'free') { const o = document.createElement('option'); o.value = -1; o.textContent = 'Where I left off' + (LIFE.home ? ` (home: ${LIFE.home.name})` : ''); sel.appendChild(o); sel.value = -1; }
 PLACES.forEach((p, i) => { const o = document.createElement('option'); o.value = i; o.textContent = p.n; sel.appendChild(o); });
 const colors = ['#d6332a', '#1f5fbf', '#f2f2ee', '#1d1f22', '#e8b81e', '#2e8b57', '#8a8f96', '#ef6c1a'];
 const sw = $('swatches');
-colors.forEach(c => { const b = document.createElement('button'); b.style.background = c; b.className = c === settings.color ? 'sel' : ''; b.onclick = () => { settings.color = c; car.userData.paint.color.set(c); saveSettings(); sw.querySelectorAll('button').forEach(x => x.className = ''); b.className = 'sel'; }; sw.appendChild(b); });
+colors.forEach(c => { const b = document.createElement('button'); b.style.background = c; b.className = c === settings.color ? 'sel' : ''; b.onclick = () => { settings.color = c; car.userData.paint.color.set(c); saveSettings(); if (LIFE_ON() && LIFE.cars[LIFE.active]) { LIFE.cars[LIFE.active].color = c; life.touch(); } sw.querySelectorAll('button').forEach(x => x.className = ''); b.className = 'sel'; }; sw.appendChild(b); });
 document.querySelectorAll('[data-car]').forEach(b => {
   b.classList.toggle('sel', b.dataset.car === settings.car);
   b.onclick = () => { settings.car = b.dataset.car; saveSettings(); setCar(); document.querySelectorAll('[data-car]').forEach(x => x.classList.toggle('sel', x === b)); };
@@ -4892,6 +5212,10 @@ $('optTime').value = settings.time ?? 'cycle';
 $('optGfx').value = LOW ? 'low' : 'high';
 $('optGfx').onchange = e => { settings.gfx = e.target.value; saveSettings(); location.reload(); };
 $('optWeather').value = settings.weather || 'clear';
+{ const m = $('optMode'); m.value = settings.mode === 'free' ? 'free' : 'life';
+  const sync = () => document.body.classList.toggle('freeMode', settings.mode === 'free');
+  sync(); m.onchange = e => { settings.mode = e.target.value; saveSettings(); sync(); setCar(); terrainizeScene(); life.hud(); };
+  $('lifeReset').onclick = e => { e.preventDefault(); if (confirm('Start your life over? Your money, apartment and cars will be reset.')) { try { localStorage.removeItem(LIFE_KEY); } catch {} location.reload(); } }; }
 $('optWeather').onchange = e => { settings.weather = e.target.value; saveSettings(); WX.next = 0; };
 $('optTime').onchange = e => { settings.time = e.target.value; saveSettings(); if (TIME_PRESETS[settings.time] != null) { tod = TIME_PRESETS[settings.time]; applyTime(tod); } };
 if (STATIC) $('optIssues').closest('label').style.display = 'none'; // no shared server to collect them
@@ -4911,9 +5235,12 @@ $('startBtn').onclick = () => {
   const idx = +sel.value;
   const at = /at=(-?[\d.]+),(-?[\d.]+)/.exec(location.hash);
   if (!started && at) { const [x, z] = proj(+at[1], +at[2]); teleport(x, z, 'Starting at your link'); }
-  else if (!started || idx !== spawnIdx) { spawnIdx = idx; const p = PLACES[idx]; teleport(p.x, p.z, p.n); }
+  else if (!started && LIFE_ON() && idx === -1 && LIFE.pos) { teleport(LIFE.pos.x, LIFE.pos.z, 'Welcome back'); }
+  else if (idx >= 0 ? (!started || idx !== spawnIdx) : !started) { spawnIdx = idx; const p = PLACES[Math.max(0, idx)]; teleport(p.x, p.z, p.n); }
   started = true; paused = false; last = performance.now();
   $('hud').classList.add('on');
+  setCar(); terrainizeScene(); life.hud();
+  if (LIFE_ON() && !LIFE.started) { LIFE.started = true; life.save(); setTimeout(() => toast(`You have ${money(LIFE.money)} and a 2009 sedan. Open your phone (📱 / P) to rent an apartment or shop for cars.`), 1500); }
 };
 scene.fog.far = settings.radius > 1 ? 2600 : 1700; camera.far = scene.fog.far + 300; camera.updateProjectionMatrix();
 
@@ -4969,6 +5296,7 @@ function frame(now) {
     updateHud(info);
     updateNav(dt, info.vf);
     chal.update(dt);
+    if (LIFE_ON()) { life.tick(dt / 60); life.burn(); if ((mmFrame & 7) === 0) { life.scan(); life.hud(); } }
     updatePoiLabels(dt);
     if (++mmFrame % 3 === 0) drawMinimap();
   }
