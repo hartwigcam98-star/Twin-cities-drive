@@ -83,8 +83,8 @@ const LIFE = (() => {
   return Object.assign({ v: 1, money: 3500, hours: 8, home: null, cars: [{ id: 1, type: 'beater', year: 2009, color: '#8a8f96', loan: null, name: '2009 Midsize Sedan' }], active: 0, log: [], nextId: 2, lastBill: 0, pos: null }, d || {});
 })();
 const LIFE_ON = () => settings.mode !== 'free';
-function vType() { const c = LIFE_ON() && LIFE.cars[LIFE.active]; return c ? c.type : settings.car; }
-function vColor() { const c = LIFE_ON() && LIFE.cars[LIFE.active]; return c ? c.color : settings.color; }
+function vType() { if (LIFE_ON() && LIFE.jobCar) return LIFE.jobCar.type; const c = LIFE_ON() && LIFE.cars[LIFE.active]; return c ? c.type : settings.car; }
+function vColor() { if (LIFE_ON() && LIFE.jobCar) return LIFE.jobCar.color; const c = LIFE_ON() && LIFE.cars[LIFE.active]; return c ? c.color : settings.color; }
 // graphics: "light" (default on phones) trims roadside clutter, trees and fine detail so the game fits in a phone's memory
 const LOW = (settings.gfx || (isTouch ? 'low' : 'high')) === 'low';
 const saveSettings = () => { try { localStorage.setItem('tcd-settings', JSON.stringify(settings)); } catch {} };
@@ -328,7 +328,7 @@ function applyTime(h) {
   todApplied = h;
 }
 function tickTime(dt) {
-  if ((settings.time ?? 'cycle') === 'cycle') tod = (tod + dt / 60) % 24; // one game hour per real minute
+  if ((settings.time ?? 'cycle') === 'cycle') tod = (tod + dt / 60 * (typeof jobs === 'object' ? jobs.clockRate() : 1)) % 24; // one game hour per real minute
   tickWeather(dt);
   applyTime(tod);
 }
@@ -2939,6 +2939,9 @@ const CARS = {
   pickup: { label: 'Pickup', top: 52, boost: 64, accel: 8.6, boostAccel: 11, grip: 8, latG: 10.5, body: 1.3 },
   van: { label: 'Minivan', top: 49, boost: 60, accel: 7, boostAccel: 9.5, grip: 8.5, latG: 10.5, body: 1.3 },
   lux: { label: 'Luxury sedan', top: 60, boost: 74, accel: 11, boostAccel: 14, grip: 10, latG: 13.5, body: 0.85 },
+  bus: { label: 'Metro Transit bus', top: 27, boost: 30, accel: 3.4, boostAccel: 4, grip: 7, latG: 6.5, body: 1.6 },
+  tow: { label: 'Tow truck', top: 44, boost: 52, accel: 6.5, boostAccel: 8, grip: 8, latG: 10, body: 1.35 },
+  taxi: { label: 'Taxi', top: 52, boost: 66, accel: 8, boostAccel: 11, grip: 9, latG: 12.5, body: 1 },
 };
 function sideProfile(pts) { const sh = new THREE.Shape(); sh.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) sh.lineTo(pts[i][0], pts[i][1]); sh.closePath(); return sh; }
 function extrudeAcross(pts, width, bevel) {
@@ -3013,6 +3016,9 @@ const VSHAPE = {
   pickup: { body: [2.02, 0.84, 5.7, 0.9], cab: [1.88, 0.76, 1.95, 0.55, 1.7], r: 0.43, ax: [1.9, -1.65], bed: true },
   van: { body: [1.98, 1.0, 5.1, 0.9], cab: [1.86, 0.78, 3.6, -0.45, 1.79], r: 0.37, ax: [1.6, -1.6] },
   lux: { body: [1.92, 0.6, 5.0, 0.66], cab: [1.66, 0.58, 2.5, -0.3, 1.24], r: 0.38, ax: [1.55, -1.55], chrome: true },
+  bus: { body: [2.55, 1.5, 12.2, 1.25], cab: [2.5, 1.05, 11.9, 0.05, 2.5], r: 0.5, ax: [4.3, -3.4] },
+  tow: { body: [2.05, 0.9, 6.0, 0.95], cab: [1.9, 0.8, 1.9, 1.05, 1.8], r: 0.44, ax: [2.0, -1.8], bed: true, boom: true },
+  taxi: { body: [1.86, 0.62, 4.8, 0.66], cab: [1.64, 0.6, 2.35, -0.25, 1.27], r: 0.36, ax: [1.45, -1.45], sign: true },
 };
 function makeBoxCar(type, color) {
   const V = VSHAPE[type], g = new THREE.Group();
@@ -3036,6 +3042,9 @@ function makeBoxCar(type, color) {
     box(0.42, 0.15, 0.05, sx * (bw / 2 - 0.3), by + bh * 0.18, bl / 2 + 0.01, hl);
     box(0.36, 0.16, 0.05, sx * (bw / 2 - 0.25), by + bh * 0.2 + (V.bed ? 0.25 : 0), -bl / 2 - 0.01, tl);
   }
+  if (V.boom) { const y = new THREE.MeshLambertMaterial({ color: '#d9a41b' }); box(0.22, 1.3, 0.22, 0, by + bh / 2 + 0.65, -bl / 2 + 0.9, dark); const arm = box(0.18, 0.18, 2.2, 0, by + bh / 2 + 1.2, -bl / 2 + 0.1, dark); arm.rotation.x = -0.45; box(cw * 0.7, 0.12, 0.25, 0, cy + ch / 2 + 0.12, cz, y); }
+  if (V.sign) box(0.7, 0.24, 0.3, 0, cy + ch / 2 + 0.2, cz, new THREE.MeshBasicMaterial({ color: '#fff2a8' }));
+  if (type === 'bus') { const blue = new THREE.MeshLambertMaterial({ color: '#1f5fbf' }), yel = new THREE.MeshLambertMaterial({ color: '#f2c318' }); for (const sx of [-1, 1]) { box(0.04, 0.3, bl - 0.4, sx * (bw / 2 + 0.01), by + 0.25, 0, blue); box(0.04, 0.1, bl - 0.4, sx * (bw / 2 + 0.01), by + 0.45, 0, yel); } box(1.6, 0.32, 0.05, 0, cy + 0.3, bl / 2 - 0.02 + (cz + cl / 2 - bl / 2) + 0.02, new THREE.MeshBasicMaterial({ color: '#ffb02e' })); }
   const wheels = makeWheels(g, dark, rimMat, V.r, [-(bw / 2 - 0.06), bw / 2 - 0.06], V.ax);
   g.userData = { wheels, paint };
   return g;
@@ -3490,9 +3499,9 @@ function updateCamera(dt, vf) {
   let px, py, pz, lx, ly, lz;
   const lag = Math.max(-0.7, Math.min(0.9, S.aL * 0.045)); // camera hangs back under acceleration, closes in under braking
   if (foot && camMode !== 3) { const d = camMode === 1 ? 7 : camMode === 2 ? 2.2 : 4.3; px = S.x - cx * d; pz = S.z - cz * d; py = camMode === 1 ? 3.6 : 2.15; lx = S.x + cx * 4; lz = S.z + cz * 4; ly = 1.35; }
-  else if (camMode === 0) { const d = 7.4 + sp * 4 + boostE * 1.6 + lag; px = S.x - cx * d; pz = S.z - cz * d; py = 3.0 + sp * 1.1; lx = S.x + cx * 6; lz = S.z + cz * 6; ly = 1.3; }
+  else if (camMode === 0) { const big = vType() === 'bus' ? 2 : vType() === 'tow' ? 1.3 : 1, d = (7.4 + sp * 4 + boostE * 1.6 + lag) * big; px = S.x - cx * d; pz = S.z - cz * d; py = (3.0 + sp * 1.1) * (big > 1 ? big * 0.85 : 1); lx = S.x + cx * 6; lz = S.z + cz * 6; ly = 1.3; }
   else if (camMode === 1) { const d = 18 + sp * 7 + boostE * 2; px = S.x - cx * d; pz = S.z - cz * d; py = 8 + sp * 3; lx = S.x + cx * 10; lz = S.z + cz * 10; ly = 1; }
-  else if (camMode === 2) { px = S.x + fx * 0.6; pz = S.z + fz * 0.6; py = 1.55; lx = S.x + fx * 30; lz = S.z + fz * 30; ly = 1.3 + S.bh + Math.tan(S.pitch + S.bp) * 30; }
+  else if (camMode === 2) { const bus = vType() === 'bus'; px = S.x + fx * (bus ? 5.2 : 0.6); pz = S.z + fz * (bus ? 5.2 : 0.6); py = bus ? 2.7 : 1.55; lx = S.x + fx * 30; lz = S.z + fz * 30; ly = 1.3 + S.bh + Math.tan(S.pitch + S.bp) * 30; }
   else { px = S.x - fx * 2; pz = S.z - fz * 2; py = 90 + sp * 60; lx = S.x + fx * 3; lz = S.z + fz * 3; ly = 0; }
   const tCar = terrainAt(S.x, S.z);
   py += S.y + tCar; ly += S.y + tCar;
@@ -4092,6 +4101,7 @@ const traffic = (() => {
 // ───────────────────────── spawning / teleport ─────────────────────────
 let pendingSnap = null;
 function teleport(x, z, label) {
+  if (window.__onTeleport) window.__onTeleport();
   if (S.mode === 'foot') { S.mode = 'car'; if (ME.fig) ME.fig.grp.visible = false; document.body.classList.remove('onfoot'); } // your car comes with you
   S.x = x; S.z = z; S.vx = S.vz = 0; S.y = 0; S.vy = 0; camInit = false;
   pendingSnap = { x, z, t: performance.now() };
@@ -4786,7 +4796,7 @@ const life = (() => {
   const pay = (amt, desc) => { L.money -= amt; note(-amt, desc); touch(); hud(); };
   const earn = (amt, desc) => { L.money += amt; note(amt, desc); touch(); hud(); };
   function hud() {
-    const on = LIFE_ON() && started; document.body.classList.toggle('life', on);
+    const on = LIFE_ON() && started; document.body.classList.toggle('life', on); document.body.classList.toggle('jobcar', on && !!L.jobCar);
     if (!on) return;
     const el = $('money'); el.textContent = money(L.money); el.classList.toggle('neg', L.money < 0);
     const c = L.cars[L.active]; $('fuelFill').style.width = c ? Math.max(0, Math.min(100, c.fuel / TANK * 100)).toFixed(0) + '%' : '0%';
@@ -4832,13 +4842,13 @@ const life = (() => {
   // ── fuel: burned by distance, refilled at gas stations ──
   let lastX = null, lastZ = null;
   function burn() {
-    const c = L.cars[L.active]; if (!c || S.mode === 'foot' || !LIFE_ON() || !started) { lastX = null; return; }
-    if (lastX !== null) { const d = Math.hypot(S.x - lastX, S.z - lastZ); if (d < 200) c.fuel = Math.max(0, c.fuel - d / ((MPG[c.type] || 25) * 1609)); }
+    const c = L.cars[L.active]; if (!c || S.mode === 'foot' || !LIFE_ON() || !started || L.jobCar) { lastX = null; return; }
+    if (lastX !== null) { const d = Math.hypot(S.x - lastX, S.z - lastZ); if (d < 200) c.fuel = Math.max(0, c.fuel - d * (1 - 0.03 * jobs.sk('drive')) / ((MPG[c.type] || 25) * 1609)); }
     lastX = S.x; lastZ = S.z;
     if (c.fuel <= 0 && !L.emptyWarned) { L.emptyWarned = true; toast('Out of gas — walk to a gas station, or order roadside gas on your phone'); }
     if (c.fuel > 0.3) L.emptyWarned = false;
   }
-  const outOfGas = () => LIFE_ON() && S.mode !== 'foot' && !!L.cars[L.active] && L.cars[L.active].fuel <= 0;
+  const outOfGas = () => LIFE_ON() && S.mode !== 'foot' && !L.jobCar && !!L.cars[L.active] && L.cars[L.active].fuel <= 0;
   // ── what's around you: gas stations, dealers, apartment buildings ──
   function nearby(kind, R) {
     let best = null, bd = R;
@@ -4856,8 +4866,8 @@ const life = (() => {
     const btn = $('actBtn');
     if (!LIFE_ON() || !started || paused) { if (act) { act = null; btn.classList.remove('on'); } return; }
     const spd = Math.hypot(S.vx, S.vz), c = L.cars[L.active];
-    let a = null;
-    if (L.home && Math.hypot(L.home.x - S.x, L.home.z - S.z) < 45 && spd < 2) a = { label: '🛏 Sleep until morning', fn: sleep };
+    let a = jobs.action();
+    if (a) {} else if (L.home && Math.hypot(L.home.x - S.x, L.home.z - S.z) < 45 && spd < 2) a = { label: '🛏 Sleep until morning', fn: sleep };
     else if (S.mode !== 'foot' && spd < 1.5 && c && c.fuel < TANK - 0.5) { const g = nearby('gas', 30); if (g) a = { label: `⛽ Fill up · ${money((TANK - c.fuel) * GAS)}`, fn: fillUp }; }
     if (!a && spd < 3) { const d = nearby('dealer', 70); if (d) a = { label: `🚗 Shop at ${d.name}`, fn: () => phone.open('cars') }; }
     if (!a && spd < 2 && S.mode === 'foot') { const ap = nearby('apt', 45); if (ap && !(L.home && Math.hypot(L.home.x - ap.x, L.home.z - ap.z) < 5)) a = { label: `🏢 ${ap.name || 'Apartments'} · see units`, fn: () => phone.open('homes', ap) }; }
@@ -4888,7 +4898,7 @@ const life = (() => {
   }
   function quote(it) {
     const tax = Math.round(it.price * TAX), total = it.price + tax, down = Math.round(total * 0.1);
-    const r = APR / 12, m = (total - down) * r / (1 - Math.pow(1 + r, -LOAN_MONTHS));
+    const apr = Math.max(0.035, APR - 0.0025 * jobs.sk('biz')), r = apr / 12, m = (total - down) * r / (1 - Math.pow(1 + r, -LOAN_MONTHS));
     return { tax, total, down, monthly: Math.round(m), weekly: Math.round(m * 12 / 52), owed: Math.round(m * LOAN_MONTHS) };
   }
   function buyCar(it, finance, atDealer, color) {
@@ -4903,6 +4913,7 @@ const life = (() => {
   const atHome = () => !!L.home && Math.hypot(L.home.x - S.x, L.home.z - S.z) < 80;
   function switchCar(i) {
     if (i === L.active) return;
+    if (L.jobCar) { toast('Finish your shift first (go offline)'); return; }
     if (S.mode === 'foot') { toast('Get in your car first'); return; }
     if (!atHome()) { if (L.money < 60) { toast('Valet delivery costs $60'); return; } pay(60, 'Valet: car swap'); }
     L.active = i; touch(); setCar(); terrainizeScene(); hud(); toast(`Driving the ${L.cars[i].name}`);
@@ -4934,6 +4945,38 @@ const phone = (() => {
       h += `<div class="pRow">Rent<span>${money(w.rent)}</span></div><div class="pRow">Car loans<span>${money(w.loans)}</span></div><div class="pRow">Insurance<span>${money(w.ins)}</span></div><div class="pRow tot">Total<span>${money(w.total)}</span></div></div>`;
       h += '<div class="pHead">Activity</div>' + (L.log.length ? L.log.map(e => `<div class="pRow">${esc(e.d)} <small>${ago(e.h)}</small><span class="${e.a < 0 ? 'neg' : 'pos'}">${e.a < 0 ? '−' : '+'}${money(Math.abs(e.a))}</span></div>`).join('') : '<div class="pSub">Nothing yet.</div>');
       h += `<button class="pBtn ghost" data-act="gascan">⛽ Roadside gas delivery · $45</button>`;
+    } else if (tab === 'jobs') {
+      const j = L.job, g = jobs.gig();
+      if (g) { const G = jobs.G(g.k); h += `<div class="pCard ok"><b>${G.ic} Online: ${esc(G.name)}</b><div class="pSub">${L.gigsDone || 0} jobs done · the clock runs slower while you work</div><button class="pBtn sm" data-act="offline">Go offline</button></div>`; }
+      if (j) {
+        const lad = jobs.LAD(j.lad), rk = lad.ranks[j.rank], nx = lad.ranks[j.rank + 1], st = jobs.canShift();
+        h += `<div class="pCard ok"><b>${lad.ic} ${esc(rk.t)}</b><span class="pR">${money(rk.w * jobs.payMult())}/hr</span><div class="pSub">${esc(j.where)} · ${j.total} shift${j.total === 1 ? '' : 's'} worked · ${st === 'done' ? 'done for today' : st === 'hours' ? 'next shift 6 AM–5 PM' : 'you can work a shift now'}</div>`;
+        if (nx) h += `<div class="pSub">Next: <b>${esc(nx.t)}</b> (${money(nx.w)}/hr) — ${Math.min(j.shifts, PROMO_SHIFTS)}/${PROMO_SHIFTS} shifts${jobs.meets(nx.req) ? ' · skills ✓' : ' · needs ' + jobs.reqText(nx.req)}</div>`;
+        else h += '<div class="pSub">Top of the ladder.</div>';
+        h += `<div class="pUnits"><button class="pBtn sm" data-act="navwork">Navigate to work</button><button class="pBtn sm ghost" data-act="quit">Quit</button></div></div>`;
+      } else h += `<div class="pCard"><b>No job yet</b><div class="pSub">Go online for gigs any time, or apply for a job below — then drive there and clock in for an 8-hour shift. Work earns XP; each level gives a skill point, and skills unlock better jobs.</div></div>`;
+      h += '<div class="pHead">Gigs · drive for pay</div>';
+      GIGS.forEach(G => {
+        const ok = jobs.meets(G.req), on = g && g.k === G.k;
+        h += `<div class="pCard"><b>${G.ic} ${esc(G.name)}</b><div class="pSub">${esc(G.desc)}</div>${on ? '' : ok ? `<button class="pBtn sm" data-act="online" data-k="${G.k}">Go online</button>` : `<div class="pSub lock">🔒 Needs ${jobs.reqText(G.req)}</div>`}</div>`;
+      });
+      h += '<div class="pHead">Careers · real Twin Cities employers</div>';
+      LADDERS.forEach(lad => {
+        h += `<div class="pCard"><b>${lad.ic} ${esc(lad.emp)}</b>${lad.anyHour ? '<span class="pR">any hour</span>' : ''}`;
+        lad.ranks.forEach((rk, r) => {
+          const mine = j && j.lad === lad.k && j.rank === r, ok = jobs.meets(rk.req);
+          h += `<div class="pRow">${mine ? '✅ ' : ok ? '' : '🔒 '}${esc(rk.t)}${ok || mine ? '' : ` <small>${jobs.reqText(rk.req)}</small>`}<span>${money(rk.w)}/hr${ok && !mine ? ` <button class="pBtn sm mini" data-act="apply" data-k="${lad.k}" data-r="${r}">Apply</button>` : ''}</span></div>`;
+        });
+        h += '</div>';
+      });
+    } else if (tab === 'skills') {
+      const need = xpNeed(L.lv);
+      h += `<div class="pBig lv">Level ${L.lv}</div><div class="xpBar"><i style="width:${(L.xp / need * 100).toFixed(0)}%"></i></div><div class="pSub">${Math.floor(L.xp)} / ${need} XP to level ${L.lv + 1} · gigs and shifts earn XP</div>`;
+      h += `<div class="pCard${L.pts ? ' ok' : ''}"><b>${L.pts} skill point${L.pts === 1 ? '' : 's'} to spend</b><div class="pSub">You get one each level. Skills unlock jobs and promotions.</div></div>`;
+      SKILLS.forEach(([k, n, ic, d]) => {
+        const v = jobs.sk(k);
+        h += `<div class="pCard"><b>${ic} ${n}</b><span class="pR">${v}/${SK_MAX}</span><div class="pips">${Array.from({ length: SK_MAX }, (_, i) => `<i class="${i < v ? 'on' : ''}"></i>`).join('')}</div><div class="pSub">${esc(d)}</div>${L.pts && v < SK_MAX ? `<button class="pBtn sm" data-act="spend" data-k="${k}">+1 ${n}</button>` : ''}</div>`;
+      });
     } else if (tab === 'homes') {
       if (L.home) h += `<div class="pCard ok"><b>🏠 ${esc(L.home.name)}</b><div class="pSub">${esc(L.home.unit)} · ${esc(L.home.area)} · ${money(L.home.rent)}/month (${money(L.home.rent * 12 / 52)}/week)</div><button class="pBtn sm" data-act="navhome">Navigate home</button></div>`;
       else h += `<div class="pCard"><b>No place of your own yet</b><div class="pSub">You're crashing on a friend's couch. Rent an apartment and you get somewhere to sleep (skips to morning and saves the game) and to swap cars for free.</div></div>`;
@@ -4976,6 +5019,12 @@ const phone = (() => {
     else if (a === 'drive') { life.switchCar(i); render(); }
     else if (a === 'sell') { life.sellCar(i); render(); }
     else if (a === 'gascan') { life.gasCan(); render(); }
+    else if (a === 'online') { close(); jobs.goOnline(b.dataset.k); }
+    else if (a === 'offline') { jobs.goOffline(); render(); }
+    else if (a === 'apply') { jobs.apply(b.dataset.k, +b.dataset.r); render(); }
+    else if (a === 'quit') { jobs.quit(); render(); }
+    else if (a === 'navwork') { close(); startNav(L.job.x, L.job.z, L.job.where); }
+    else if (a === 'spend') { jobs.spend(b.dataset.k); render(); }
   };
   tabs.forEach(b => b.onclick = () => { tab = b.dataset.tab; ctx = null; render(); });
   function open(t, c) { if (!LIFE_ON() || !started) return; if (t) tab = t; ctx = c || null; P.classList.add('on'); paused = true; render(); }
@@ -4985,7 +5034,315 @@ const phone = (() => {
 })();
 $('actBtn').onclick = () => life.doAction();
 $('money').onclick = () => phone.open('bank');
+$('lvPill').onclick = () => phone.open('skills');
 window.__life = life; window.__phone = phone;
+// ───────────────────────── work: XP, levels and skill points; driving gigs; careers at real employers ─────────────────────────
+// Wages are 2026 Twin Cities figures: Minneapolis minimum wage $16.37 (Jan 2026), Minnesota rideshare minimum pay $1.28/mile +
+// $0.31/minute (2026), Metro Transit bus operators $27.59/hr to start (ATU 1005 contract), and career wages anchored to the
+// BLS May 2025 Minneapolis–St. Paul wage estimates (tellers $21.55, food service ~$17, healthcare practitioners ~$59, computer ~$55…).
+const SKILLS = [
+  ['drive', 'Driving', '🚗', 'Unlocks taxi, tow and bus work. +5% gig pay and −3% fuel use per point.'],
+  ['people', 'People', '🤝', 'Customer-facing jobs. +10% tips per point.'],
+  ['hands', 'Hands-on', '🔧', 'The trades: construction and electrical work, tow trucks.'],
+  ['tech', 'Tech', '💻', 'Computers, IT and software — and the science side of nursing.'],
+  ['biz', 'Business', '📈', 'Banking, finance and management. +2% on every paycheck and −0.25% car-loan APR per point.'],
+];
+const SK_MAX = 10;
+const xpNeed = lv => 100 + 50 * (lv - 1);
+// gig apps. own: use your own car; car: the company's vehicle (you swap into it when you go online)
+const GIGS = [
+  { k: 'deliver', name: 'DashDrop delivery', ic: '🍔', req: {}, xp: 12, own: true, desc: 'Pick up food at restaurants and drop it at customers’ doors. Base pay + mileage + tips.' },
+  { k: 'ride', name: 'Lyfft rideshare', ic: '🙋', req: { drive: 1 }, xp: 15, own: true, desc: 'Minnesota minimum pay: $1.28 per mile + $0.31 per minute with a rider, plus tips.' },
+  { k: 'taxi', name: 'Twin Town Taxi', ic: '🚕', req: { drive: 3 }, xp: 18, car: { type: 'taxi', color: '#f2c318' }, desc: 'Metered fares: $3.00 to start + $2.60 a mile, and you keep the tips. Company cab provided.' },
+  { k: 'tow', name: 'North Star Towing', ic: '🛻', req: { drive: 3, hands: 2 }, xp: 25, car: { type: 'tow', color: '#d93a2b' }, desc: 'Haul broken-down cars to repair shops. $85 a tow + $3 a mile.' },
+  { k: 'bus', name: 'Metro Transit bus operator', ic: '🚌', req: { drive: 5 }, xp: 40, car: { type: 'bus', color: '#f2f2ee' }, hourly: 27.59, desc: 'Drive a route from Heywood Garage. $27.59/hour (union scale), paid for every hour on the road.' },
+];
+const GARAGE = (() => { const [x, z] = proj(44.9862, -93.2844); return { x, z, n: 'Heywood Garage' }; })();
+// career ladders: the employer, where you clock in (a real location — chains use the store nearest you when you apply), and the ranks
+const LADDERS = [
+  { k: 'coffee', emp: 'Caribou Coffee', ic: '☕', match: /caribou/i, at: [44.9762, -93.2733], ranks: [
+    { t: 'Barista', w: 16.37, req: {} }, { t: 'Shift Lead', w: 18.75, req: { people: 2 } }, { t: 'Café Manager', w: 25.5, req: { people: 4, biz: 2 } }] },
+  { k: 'retail', emp: 'Target', ic: '🎯', match: /^target\b/i, at: [44.9746, -93.2738], ranks: [
+    { t: 'Team Member', w: 17.5, req: {} }, { t: 'Team Lead', w: 22.75, req: { people: 3 } }, { t: 'Executive Team Leader', w: 33, req: { people: 4, biz: 3 } }, { t: 'Store Director', w: 52, req: { people: 5, biz: 6 } }] },
+  { k: 'trades', emp: 'Mortenson Construction', ic: '🏗️', at: [44.9849, -93.3348], ranks: [
+    { t: 'Construction Laborer', w: 24.5, req: {} }, { t: 'Apprentice Electrician', w: 27, req: { hands: 2 } }, { t: 'Journeyman Electrician', w: 48.5, req: { hands: 5, tech: 1 } }, { t: 'Master Electrician', w: 58, req: { hands: 8, tech: 2, biz: 2 } }] },
+  { k: 'health', emp: 'Hennepin Healthcare (HCMC)', ic: '🏥', at: [44.9727, -93.2617], anyHour: true, ranks: [
+    { t: 'Nursing Assistant', w: 21, req: { people: 1 } }, { t: 'Licensed Practical Nurse', w: 30.5, req: { people: 2, tech: 2 } }, { t: 'Registered Nurse', w: 52.5, req: { people: 3, tech: 5 } }, { t: 'Charge Nurse', w: 61, req: { people: 4, tech: 6, biz: 2 } }] },
+  { k: 'tech', emp: 'Best Buy HQ', ic: '💻', at: [44.8626, -93.3082], ranks: [
+    { t: 'Geek Squad Agent', w: 19.5, req: { tech: 1 } }, { t: 'IT Support Specialist', w: 29, req: { tech: 3 } }, { t: 'Software Engineer', w: 57, req: { tech: 6 } }, { t: 'Senior Software Engineer', w: 74, req: { tech: 8, biz: 2 } }] },
+  { k: 'bank', emp: 'U.S. Bank', ic: '🏦', at: [44.9757, -93.2730], ranks: [
+    { t: 'Bank Teller', w: 21.55, req: { people: 1 } }, { t: 'Personal Banker', w: 26.5, req: { people: 2, biz: 2 } }, { t: 'Financial Analyst', w: 45, req: { biz: 5, tech: 1 } }, { t: 'Branch Manager', w: 62, req: { biz: 7, people: 4 } }] },
+];
+const SHIFT_H = 8, PROMO_SHIFTS = 3;
+const jobs = (() => {
+  const L = LIFE;
+  if (!L.sk) { L.sk = { drive: 0, people: 0, hands: 0, tech: 0, biz: 0 }; L.lv = 1; L.xp = 0; L.pts = 2; }
+  const sk = k => (L.sk && L.sk[k]) || 0;
+  const meets = req => Object.entries(req).every(([k, v]) => sk(k) >= v);
+  const reqText = req => Object.entries(req).filter(([k, v]) => sk(k) < v).map(([k, v]) => `${SKILLS.find(s => s[0] === k)[1]} ${v}`).join(', ');
+  const dayOf = h => Math.floor(h / 24);
+  // ── XP and levels ──
+  function gainXP(n) {
+    L.xp += n; let up = 0;
+    while (L.xp >= xpNeed(L.lv)) { L.xp -= xpNeed(L.lv); L.lv++; L.pts++; up++; }
+    if (up) { flashTag('LEVEL UP'); setTimeout(() => toast(`Level ${L.lv}! You have ${L.pts} skill point${L.pts > 1 ? 's' : ''} to spend — open your phone → Skills`), 1800); sfx.whoosh(); buzz(40); }
+    life.touch(); hud();
+  }
+  function spend(k) {
+    if (L.pts < 1 || sk(k) >= SK_MAX) return;
+    L.pts--; L.sk[k] = sk(k) + 1; life.touch(); life.save();
+    const s = SKILLS.find(x => x[0] === k); toast(`${s[1]} is now ${L.sk[k]}`);
+    checkPromo(true);
+  }
+  const payMult = () => 1 + 0.02 * sk('biz');
+  const gigMult = () => 1 + 0.05 * sk('drive');
+  const tipMult = () => 1 + 0.1 * sk('people');
+  // ── where things are ──
+  function roadPoints(R, x0, z0) {
+    const out = [];
+    for (const t of tiles.values()) {
+      if (t.state.r !== 2) continue;
+      for (const r of t.roads) {
+        if (r.c < 2 || r.c > 7 || r.tunnel) continue;
+        const p = r.pts, n = p.length / 2;
+        for (let i = 0; i < n - 1; i += 2) {
+          if (r.hs && Math.abs(r.hs[i]) > 0.3) continue;
+          const x = (p[i * 2] + p[i * 2 + 2]) / 2, z = (p[i * 2 + 1] + p[i * 2 + 3]) / 2;
+          if (Math.hypot(x - x0, z - z0) > R) continue;
+          out.push({ x, z, n: r.name || '' });
+        }
+      }
+    }
+    return out;
+  }
+  const allPois = f => { const out = []; for (const t of tiles.values()) for (const p of t.pois || []) if (p.name && f(p)) out.push(p); return out; };
+  function pickNear(list, x, z, lo, hi) {
+    const ok = list.filter(p => { const d = Math.hypot(p.x - x, p.z - z); return d >= lo && d <= hi; });
+    return ok.length ? ok[(Math.random() * ok.length) | 0] : null;
+  }
+  const mi = (a, b) => Math.hypot(a.x - b.x, a.z - b.z) * 1.3 / 1609; // road miles ≈ 1.3 × straight line
+  // ── 3D marker for the next stop: a light column with a ring on the ground ──
+  const mkMat = new THREE.MeshBasicMaterial({ color: '#4fd27a', transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide });
+  const mkRing = new THREE.MeshBasicMaterial({ color: '#4fd27a', transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+  const marker = new THREE.Group();
+  { const col = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 120, 14, 1, true), mkMat); col.position.y = 60; marker.add(col);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(5, 6.2, 32), mkRing); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.3; marker.add(ring); }
+  marker.visible = false; scene.add(marker);
+  function placeMarker(p) {
+    if (!p) { marker.visible = false; return; }
+    const sf = surfaceAt(p.x, p.z, 5); marker.position.set(p.x, sf ? sf.h : 0, p.z); marker.visible = true;
+  }
+  // the broken-down car for tow jobs
+  let wreck = null;
+  function makeWreck(p) {
+    clearWreck();
+    wreck = makeBoxCar(['beater', 'hatch', 'suv', 'van'][(Math.random() * 4) | 0], ['#6b6f75', '#7d1d1d', '#23365c', '#b9ab8f'][(Math.random() * 4) | 0]);
+    const sf = surfaceAt(p.x, p.z, 5); wreck.position.set(p.x, sf ? sf.h : 0, p.z); wreck.rotation.y = Math.random() * 6.28; scene.add(wreck);
+  }
+  function clearWreck() { if (wreck) { scene.remove(wreck); wreck.traverse(o => { if (o.geometry) o.geometry.dispose(); }); wreck = null; } }
+  // ── gigs ──
+  let gig = null; // { k, stage: 'wait'|'pick'|'drop', from, to, wait, t, stops, i }
+  const el = $('gig'), elT = $('gigTitle'), elM = $('gigMain'), elS = $('gigSub'), elA = $('gigArrow');
+  const G = k => GIGS.find(g => g.k === k);
+  function goOnline(k) {
+    const g = G(k); if (!g || !meets(g.req)) return;
+    if (chal.active()) chal.stop();
+    if (gig) goOffline(true);
+    if (g.own && !L.cars[L.active]) { toast('You need a car for this'); return; }
+    if (k === 'bus' && Math.hypot(S.x - GARAGE.x, S.z - GARAGE.z) > 150) {
+      gig = { k, stage: 'garage', to: GARAGE };
+      startNav(GARAGE.x, GARAGE.z, 'Heywood Garage'); placeMarker(GARAGE); show(); toast('Head to Heywood Garage to pick up your bus'); return;
+    }
+    begin(k);
+  }
+  function begin(k) {
+    const g = G(k);
+    if (S.mode === 'foot') { toast('Get in a vehicle first'); gig = null; show(); return; }
+    if (g.car) { L.jobCar = { ...g.car }; setCar(); terrainizeScene(); toast(k === 'bus' ? 'Your bus is ready — follow the route' : `Your ${CARS[g.car.type].label.toLowerCase()} is here`); }
+    gig = { k, stage: 'wait', wait: 3 + Math.random() * 3, t: 0, start: L.hours };
+    if (k === 'bus') newRoute();
+    show(); life.touch();
+  }
+  function goOffline(quiet) {
+    if (!gig) return;
+    const was = gig; gig = null;
+    if (was.k === 'bus' && was.stops) payBus(was, true);
+    if (L.jobCar) { L.jobCar = null; setCar(); terrainizeScene(); }
+    clearWreck(); placeMarker(null); if (nav.route) endNav(); show(); life.touch(); life.hud();
+    if (!quiet) toast('You’re offline');
+  }
+  function offer() {
+    const g = G(gig.k), you = { x: S.x, z: S.z };
+    let from = null, to = null;
+    if (gig.k === 'deliver') {
+      const food = allPois(p => p.c === 0 || p.c === 1);
+      from = pickNear(food, S.x, S.z, 150, 2200) || pickNear(food, S.x, S.z, 0, 4000);
+      if (from) { const rp = roadPoints(4000, from.x, from.z); to = pickNear(rp, from.x, from.z, 600, 3200); if (to) to.n = to.n ? `a customer on ${to.n}` : 'a customer'; }
+    } else if (gig.k === 'ride' || gig.k === 'taxi') {
+      const rp = roadPoints(1800, S.x, S.z); from = pickNear(rp, S.x, S.z, 150, 1500);
+      if (from) { from.n = from.n ? `a rider on ${from.n}` : 'your rider'; to = pickNear(allPois(p => p.c !== 2), from.x, from.z, 900, 6500); }
+    } else if (gig.k === 'tow') {
+      const rp = roadPoints(2600, S.x, S.z); from = pickNear(rp, S.x, S.z, 300, 2500);
+      if (from) { from.n = from.n ? `a breakdown on ${from.n}` : 'a breakdown';
+        const shops = allPois(p => p.c === 3 && /auto|tire|collision|repair|body|car|midas|meineke|firestone|goodyear|jiffy/i.test(p.name));
+        to = pickNear(shops, from.x, from.z, 500, 6000) || pickNear(allPois(p => p.c === 3), from.x, from.z, 800, 5000); }
+    }
+    if (!from || !to) { gig.wait = 6; elM.textContent = 'Finding work…'; elS.textContent = 'Drive somewhere busier if this takes a while'; return; }
+    const m = mi(from, to);
+    let pay = 0;
+    if (gig.k === 'deliver') pay = 2.5 + 0.9 * m;
+    else if (gig.k === 'ride') pay = 1.28 * m + 0.31 * m * 2.4; // minutes with the rider ≈ 2.4 per mile in town traffic
+    else if (gig.k === 'taxi') pay = 3 + 2.6 * m;
+    else if (gig.k === 'tow') pay = 85 + 3 * m;
+    pay *= gigMult();
+    Object.assign(gig, { stage: 'pick', from, to, pay, m, t: 0 });
+    if (gig.k === 'tow') makeWreck(from);
+    placeMarker(from); startNav(from.x, from.z, from.n); sfx.whoosh(); buzz(20);
+    toast(`${g.ic} New ${gig.k === 'deliver' ? 'order' : gig.k === 'tow' ? 'tow' : 'ride'}: ${m.toFixed(1)} mi · ${money(pay)}${gig.k === 'tow' ? '' : ' + tip'}`);
+  }
+  function complete() {
+    const g = G(gig.k);
+    let tip = 0;
+    if (gig.k !== 'tow' && Math.random() < (gig.k === 'deliver' ? 0.85 : 0.65)) tip = (gig.k === 'deliver' ? 2 + Math.random() * 4 : gig.pay * (0.1 + Math.random() * 0.15)) * tipMult();
+    life.earn(Math.round(gig.pay * 100) / 100, `${g.name}: ${gig.to.n || 'trip'}`);
+    if (tip > 0.5) life.earn(Math.round(tip * 100) / 100, 'Tip');
+    L.gigsDone = (L.gigsDone || 0) + 1;
+    flashTag(`+${money(gig.pay + tip)}`); gainXP(g.xp);
+    clearWreck(); placeMarker(null); if (nav.route) endNav();
+    Object.assign(gig, { stage: 'wait', wait: 4 + Math.random() * 6, from: null, to: null });
+  }
+  // the bus: a loop of stops on real streets, paid by the hour
+  function newRoute() {
+    const rp = roadPoints(4000, S.x, S.z).filter(p => p.n);
+    const stops = []; let px = S.x, pz = S.z;
+    for (let k = 0; k < 7; k++) { const s = pickNear(rp, px, pz, 350, 750); if (!s || stops.some(q => Math.hypot(q.x - s.x, q.z - s.z) < 250)) continue; stops.push(s); px = s.x; pz = s.z; }
+    if (stops.length < 3) { gig.wait = 5; return; }
+    Object.assign(gig, { stage: 'bus', stops, i: 0, start: L.hours, to: stops[0] });
+    placeMarker(stops[0]); startNav(stops[0].x, stops[0].z, `Stop: ${stops[0].n}`);
+  }
+  function payBus(g, early) {
+    const hrs = Math.max(0.25, L.hours - g.start), pay = hrs * G('bus').hourly * payMult();
+    life.earn(Math.round(pay * 100) / 100, `Metro Transit: ${hrs.toFixed(1)} h`);
+    if (!early) { gainXP(G('bus').xp); flashTag(`+${money(pay)}`); }
+  }
+  function show() {
+    const on = !!gig; el.classList.toggle('on', on);
+    document.body.classList.toggle('working', on);
+  }
+  // the clock runs at 1/6 speed while you're working a gig, so pay per game hour is realistic
+  const clockRate = () => (gig && gig.stage !== 'garage' ? 1 / 6 : 1);
+  function update(dt) {
+    if (!gig || !LIFE_ON()) { if (gig && !LIFE_ON()) goOffline(true); return; }
+    const g = G(gig.k), spd = Math.hypot(S.vx, S.vz);
+    const arrow = p => { const a = Math.atan2(p.x - S.x, p.z - S.z) - S.h; elA.style.transform = `rotate(${(-a * 180 / Math.PI).toFixed(1)}deg)`; };
+    elT.textContent = `${g.ic} ${g.name}`;
+    if (gig.stage === 'garage') {
+      const d = Math.hypot(S.x - GARAGE.x, S.z - GARAGE.z); arrow(GARAGE);
+      elM.textContent = 'Go to the garage'; elS.textContent = fmtDist(d);
+      if (d < 60 && spd < 3) { placeMarker(null); if (nav.route) endNav(); begin('bus'); }
+      return;
+    }
+    if (gig.stage === 'wait') {
+      elM.textContent = 'Waiting for a request…'; elS.textContent = `${L.gigsDone || 0} jobs done`; elA.style.transform = '';
+      if ((gig.wait -= dt) <= 0) { if (gig.k === 'bus') newRoute(); else offer(); }
+      return;
+    }
+    if (gig.stage === 'bus') {
+      const s = gig.stops[gig.i], d = Math.hypot(S.x - s.x, S.z - s.z); arrow(s);
+      elM.textContent = `Stop ${gig.i + 1}/${gig.stops.length}`; elS.textContent = `${s.n} · ${fmtDist(d)} · ${money((L.hours - gig.start) * g.hourly * payMult())} so far`;
+      if (d < 25 && spd < 2) {
+        gig.i++; buzz(20); sfx.whoosh(); toast(gig.i < gig.stops.length ? `Picked up ${1 + ((Math.random() * 6) | 0)} passengers` : 'End of the line');
+        if (gig.i >= gig.stops.length) { payBus(gig); if (nav.route) endNav(); placeMarker(null); Object.assign(gig, { stage: 'wait', wait: 4 }); return; }
+        const n = gig.stops[gig.i]; placeMarker(n); startNav(n.x, n.z, `Stop: ${n.n}`);
+      }
+      return;
+    }
+    const tgt = gig.stage === 'pick' ? gig.from : gig.to, d = Math.hypot(S.x - tgt.x, S.z - tgt.z);
+    arrow(tgt); gig.t += dt;
+    elM.textContent = money(gig.pay); elS.textContent = `${gig.stage === 'pick' ? 'Pick up' : 'Drop off'}: ${tgt.n} · ${fmtDist(d)}`;
+    if (gig.k === 'tow' && wreck && gig.stage === 'drop') { // the wreck rides behind on the hook
+      const bx = S.x - Math.sin(S.h) * 6.3, bz = S.z - Math.cos(S.h) * 6.3;
+      wreck.position.set(bx, S.y + 0.35, bz); wreck.rotation.set(0.12, S.h, 0);
+    }
+    const R = tgt.c !== undefined ? 45 : 26; // shops and restaurants sit back from the street
+    if (d < R && spd < 2.5) {
+      if (gig.stage === 'pick') {
+        gig.stage = 'drop'; buzz(20); sfx.whoosh();
+        toast(gig.k === 'deliver' ? `Picked up the order from ${gig.from.name || gig.from.n}` : gig.k === 'tow' ? 'Hooked up — take it to the shop' : 'Rider’s in');
+        placeMarker(gig.to); startNav(gig.to.x, gig.to.z, gig.to.name || gig.to.n);
+        if (gig.to.name) gig.to.n = gig.to.name;
+      } else complete();
+    }
+  }
+  // ── careers ──
+  const LAD = k => LADDERS.find(l => l.k === k);
+  function workplace(lad) {
+    if (lad.match) { let best = null, bd = 1e9; for (const p of allPois(p => lad.match.test(p.name))) { const d = Math.hypot(p.x - S.x, p.z - S.z); if (d < bd) { bd = d; best = p; } } if (best) return { x: best.x, z: best.z, n: `${lad.emp}, ${rentArea(best.x, best.z).n}` }; }
+    const [x, z] = proj(lad.at[0], lad.at[1]); return { x, z, n: lad.emp };
+  }
+  function apply(k, r) {
+    const lad = LAD(k), rank = lad.ranks[r];
+    if (!meets(rank.req)) return;
+    if (L.job && !confirm(`Quit your job as ${LAD(L.job.lad).ranks[L.job.rank].t}?`)) return;
+    const w = workplace(lad);
+    L.job = { lad: k, rank: r, shifts: 0, total: 0, last: L.hours, lastDay: -1, x: w.x, z: w.z, where: w.n };
+    life.touch(); life.save();
+    flashTag('HIRED'); toast(`You’re hired: ${rank.t} at ${w.n} · ${money(rank.w)}/hr`);
+  }
+  function quit() { if (!L.job) return; const t = LAD(L.job.lad).ranks[L.job.rank].t; if (!confirm(`Quit your job as ${t}?`)) return; L.job = null; life.touch(); life.save(); toast('You quit'); }
+  const canShift = () => {
+    const j = L.job; if (!j) return 'none';
+    const lad = LAD(j.lad);
+    if (dayOf(L.hours) === j.lastDay) return 'done';
+    if (!lad.anyHour && (tod < 6 || tod > 17)) return 'hours';
+    return 'ok';
+  };
+  function work() {
+    const j = L.job; if (!j) return;
+    const st = canShift();
+    if (st === 'done') { toast('You already worked today — come back tomorrow'); return; }
+    if (st === 'hours') { toast('Day shifts start between 6 AM and 5 PM'); return; }
+    if (gig) goOffline(true);
+    const lad = LAD(j.lad), rank = lad.ranks[j.rank], pay = rank.w * SHIFT_H * payMult();
+    tod = (tod + SHIFT_H) % 24; applyTime(tod); life.tick(SHIFT_H);
+    j.shifts++; j.total++; j.last = L.hours; j.lastDay = dayOf(L.hours - SHIFT_H);
+    life.earn(Math.round(pay * 100) / 100, `Paycheck — ${rank.t}, ${SHIFT_H} h`);
+    flashTag(`+${money(pay)}`); toast(`Worked an ${SHIFT_H}-hour shift as ${rank.t} · ${money(pay)} deposited · it's ${clockText()}`);
+    gainXP(35 + 10 * j.rank);
+    checkPromo();
+    L.pos = { x: S.x, z: S.z, h: S.h }; life.save();
+  }
+  function checkPromo(quiet) {
+    const j = L.job; if (!j) return;
+    const lad = LAD(j.lad), next = lad.ranks[j.rank + 1]; if (!next) return;
+    if (j.shifts < PROMO_SHIFTS) return;
+    if (meets(next.req)) {
+      j.rank++; j.shifts = 0; life.touch(); life.save();
+      flashTag('PROMOTED'); setTimeout(() => toast(`Promoted to ${next.t} · ${money(next.w)}/hr`), quiet ? 0 : 2200);
+    } else if (!quiet && !j.toldNeed) { j.toldNeed = true; setTimeout(() => toast(`Ready for promotion to ${next.t} — you need ${reqText(next.req)}`), 2200); }
+  }
+  // no show for a week → fired
+  function tick() {
+    const j = L.job; if (!j) return;
+    if (L.hours - j.last > 168) { toast(`You were let go from ${LAD(j.lad).emp} — no shifts in a week`); L.job = null; life.touch(); }
+  }
+  // the action button at your workplace
+  function action() {
+    const j = L.job; if (!j || gig) return null;
+    if (Math.hypot(S.x - j.x, S.z - j.z) > 130 || Math.hypot(S.vx, S.vz) > 2) return null;
+    const rank = LAD(j.lad).ranks[j.rank], st = canShift();
+    if (st === 'done') return { label: '🕐 Shift done for today', fn: () => toast('You already worked today — come back tomorrow') };
+    if (st === 'hours') return { label: '🕐 Come back 6 AM–5 PM', fn: () => toast('Day shifts start between 6 AM and 5 PM — sleep or wait it out (T skips an hour)') };
+    return { label: `🕐 Clock in · ${SHIFT_H} h · ${money(rank.w * SHIFT_H * payMult())}`, fn: work };
+  }
+  function hud() { const b = $('lvPill'); if (b) { b.textContent = `Lv ${L.lv}${L.pts ? ' · ' + L.pts + ' pt' + (L.pts > 1 ? 's' : '') : ''}`; b.classList.toggle('pts', L.pts > 0); } }
+  $('gigQuit').onclick = () => goOffline();
+  window.__onTeleport = () => { if (gig) { goOffline(true); toast('Teleporting ended your gig'); } };
+  return { gainXP, spend, sk, meets, reqText, goOnline, goOffline, update, clockRate, apply, quit, work, action, tick, hud, canShift, LAD, G,
+    gig: () => gig, payMult, gigMult, tipMult, workplace };
+})();
+
+window.__jobs = jobs;
 
 // ───────────────────────── challenges: timed runs, checkpoint rush, landmark hunt ─────────────────────────
 const DISCOVER = [
@@ -5148,6 +5505,7 @@ const chal = (() => {
   list.onclick = e => {
     const b = e.target.closest('button'); if (!b) return;
     const a = b.dataset.a, i = +b.dataset.i; close();
+    if (a !== 'lm' && jobs.gig()) jobs.goOffline(true);
     if (a === 'rush') startRush();
     else if (a === 'run') startRun(RUNS[i]);
     else if (a === 'lm' && !found[DISCOVER[i].n]) startNav(DISCOVER[i].x, DISCOVER[i].z, DISCOVER[i].n);
@@ -5240,7 +5598,7 @@ $('startBtn').onclick = () => {
   started = true; paused = false; last = performance.now();
   $('hud').classList.add('on');
   setCar(); terrainizeScene(); life.hud();
-  if (LIFE_ON() && !LIFE.started) { LIFE.started = true; life.save(); setTimeout(() => toast(`You have ${money(LIFE.money)} and a 2009 sedan. Open your phone (📱 / P) to rent an apartment or shop for cars.`), 1500); }
+  if (LIFE_ON() && !LIFE.started) { LIFE.started = true; life.save(); setTimeout(() => toast(`You have ${money(LIFE.money)} and a 2009 sedan. Open your phone (📱 / P) to find work, rent an apartment or shop for cars.`), 1500); }
 };
 scene.fog.far = settings.radius > 1 ? 2600 : 1700; camera.far = scene.fog.far + 300; camera.updateProjectionMatrix();
 
@@ -5296,7 +5654,7 @@ function frame(now) {
     updateHud(info);
     updateNav(dt, info.vf);
     chal.update(dt);
-    if (LIFE_ON()) { life.tick(dt / 60); life.burn(); if ((mmFrame & 7) === 0) { life.scan(); life.hud(); } }
+    if (LIFE_ON()) { life.tick(dt / 60 * jobs.clockRate()); life.burn(); jobs.update(dt); if ((mmFrame & 7) === 0) { life.scan(); life.hud(); jobs.hud(); jobs.tick(); } }
     updatePoiLabels(dt);
     if (++mmFrame % 3 === 0) drawMinimap();
   }
