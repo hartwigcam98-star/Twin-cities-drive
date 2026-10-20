@@ -5132,6 +5132,210 @@ $('actBtn').onclick = () => life.doAction();
 $('money').onclick = () => phone.open('bank');
 $('lvPill').onclick = () => phone.open('skills');
 window.__life = life; window.__phone = phone;
+// ───────────────────────── on the clock: a short mini-game for each employer ─────────────────────────
+// 60 seconds of the actual job. Performance (0–1) sets the paycheck (85%–120% of base) and how fast you earn a
+// promotion; Skip pays base wages. Harder at higher ranks.
+const shiftGame = (() => {
+  const box = $('shift'), body = $('shBody'), elT = $('shTitle'), elTime = $('shTime'), elScore = $('shScore'), elHint = $('shHint');
+  let G = null, timer = null;
+  const pick = a => a[(Math.random() * a.length) | 0];
+  const shuffle = a => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const usd = v => '$' + v.toFixed(2);
+  function feedback(ok, msg) {
+    const f = document.createElement('div'); f.className = 'shFx ' + (ok ? 'ok' : 'no'); f.textContent = msg || (ok ? '✓' : '✗'); box.appendChild(f);
+    setTimeout(() => f.remove(), 700); buzz(ok ? 12 : 40);
+  }
+  const ctx = {
+    good(msg) { G.good++; feedback(true, msg); upd(); },
+    bad(msg) { G.bad++; feedback(false, msg); upd(); },
+  };
+  function upd() { elScore.textContent = `✓ ${G.good}${G.bad ? '  ✗ ' + G.bad : ''}`; }
+  // ── item timer bar shared by the games ──
+  let itemT = 0, itemMax = 0, onItemOut = null;
+  const setItem = (sec, fn) => { itemT = itemMax = sec; onItemOut = fn; };
+  // ── Caribou: build the drink on the ticket ──
+  function coffee(r) {
+    const DR = ['Latte', 'Mocha', 'Americano', 'Cappuccino', 'Chai latte', 'Cold brew'], SZ = ['Small', 'Medium', 'Large'], MK = ['Whole', 'Oat', 'Skim', 'Almond'], SH = ['1 shot', '2 shots', '3 shots'];
+    const groups = [['Drink', DR], ['Size', SZ]]; if (r >= 1) groups.push(['Milk', MK]); if (r >= 2) groups.push(['Espresso', SH]);
+    let order, sel;
+    function next() {
+      order = groups.map(([, opts]) => pick(opts)); sel = groups.map(() => null);
+      draw(); setItem(15 - r * 2, () => { ctx.bad('Customer left'); next(); });
+    }
+    function draw() {
+      let h = `<div class="shCard"><small>ORDER</small><b>${order.join(' · ')}</b></div>`;
+      groups.forEach(([n, opts], gi) => { h += `<div class="shLab">${n}</div><div class="shChips">${opts.map(o => `<button class="${sel[gi] === o ? 'on' : ''}" data-g="${gi}" data-o="${esc(o)}">${o}</button>`).join('')}</div>`; });
+      h += `<button class="shGo" data-serve="1">Hand it over ☕</button>`;
+      body.innerHTML = h;
+    }
+    body.onclick = e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.serve) { if (sel.every((s, i) => s === order[i])) ctx.good('Perfect ☕'); else ctx.bad('Wrong drink'); next(); return; }
+      sel[+b.dataset.g] = b.dataset.o; draw();
+    };
+    elHint.textContent = 'Tap what’s on the ticket, then hand it over.';
+    next(); return 7;
+  }
+  // ── Target: restock to the right department; make change at the register ──
+  function retail(r) {
+    const IT = [['Cereal', 'Grocery'], ['Frozen pizza', 'Grocery'], ['Coffee beans', 'Grocery'], ['Headphones', 'Electronics'], ['HDMI cable', 'Electronics'], ['Phone charger', 'Electronics'], ['Paper towels', 'Home'], ['Throw pillow', 'Home'], ['Bath towels', 'Home'], ['LEGO set', 'Toys'], ['Board game', 'Toys'], ['Puzzle', 'Toys'], ['Hoodie', 'Clothing'], ['Jeans', 'Clothing'], ['Socks', 'Clothing'], ['Ibuprofen', 'Pharmacy'], ['Band-Aids', 'Pharmacy'], ['Vitamins', 'Pharmacy']];
+    const DEP = ['Grocery', 'Electronics', 'Home', 'Toys', 'Clothing', 'Pharmacy'];
+    function next() {
+      if (r >= 1 && Math.random() < 0.35) { // register: pick the right change
+        const tot = Math.round((3 + Math.random() * 60) * 100) / 100, paid = tot < 20 ? 20 : tot < 50 ? 50 : 100, ch = Math.round((paid - tot) * 100) / 100;
+        const wrong = shuffle([ch + 1, ch - 1, ch + 0.1, ch - 0.1, ch + 0.25].filter(v => v >= 0)).slice(0, 2);
+        const opts = shuffle([[ch, 1], ...wrong.map(v => [v, 0])]);
+        body.innerHTML = `<div class="shCard"><small>REGISTER</small><b>Total ${usd(tot)} · paid with a $${paid}</b><span>How much change?</span></div><div class="shGrid three">${opts.map(([v, ok]) => `<button data-ok="${ok}">${usd(v)}</button>`).join('')}</div>`;
+        setItem(9 - r, () => { ctx.bad('Line’s backing up'); next(); });
+      } else {
+        const [it, dep] = pick(IT), opts = shuffle([dep, ...shuffle(DEP.filter(d => d !== dep)).slice(0, 2 + Math.min(r, 1))]);
+        body.innerHTML = `<div class="shCard"><small>RESTOCK</small><b>${it}</b><span>Which department?</span></div><div class="shGrid">${opts.map(d => `<button data-ok="${d === dep ? 1 : 0}">${d}</button>`).join('')}</div>`;
+        setItem(5.5 - r * 0.5, () => { ctx.bad('Too slow'); next(); });
+      }
+    }
+    body.onclick = e => { const b = e.target.closest('button'); if (!b) return; b.dataset.ok === '1' ? ctx.good() : ctx.bad(); next(); };
+    elHint.textContent = r >= 1 ? 'Shelve each item in its department; at the register, pick the right change.' : 'Shelve each item in the right department.';
+    next(); return 16;
+  }
+  // ── Mortenson: wire the panel by the color code ──
+  function trades(r) {
+    const W = [['black', 'Hot (line)'], ['white', 'Neutral'], ['green', 'Ground'], ['red', 'Switch leg'], ['blue', 'Traveler'], ['orange', 'Data / low voltage']];
+    let wires, held, done;
+    function next() {
+      const n = Math.min(W.length, 3 + r); wires = shuffle(W.slice(0, n)); held = null; done = new Set();
+      draw(); setItem(5 + n * 2.6 - r, () => { ctx.bad('Panel not finished'); next(); });
+    }
+    function draw() {
+      const terms = [...wires].sort((a, b) => a[1].localeCompare(b[1]));
+      body.innerHTML = `<div class="shWire"><div>${wires.map(([c]) => `<button class="wire ${c}${held === c ? ' on' : ''}${done.has(c) ? ' done' : ''}" data-w="${c}"></button>`).join('')}</div><div>${terms.map(([c, t]) => `<button class="term${done.has(c) ? ' done' : ''}" data-t="${c}">${done.has(c) ? '⚡ ' : ''}${t}</button>`).join('')}</div></div>`;
+    }
+    body.onclick = e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.w && !done.has(b.dataset.w)) { held = b.dataset.w; draw(); return; }
+      if (b.dataset.t && held) {
+        if (b.dataset.t === held) { done.add(held); ctx.good(); if (done.size === wires.length) { feedback(true, 'Panel live ⚡'); next(); return; } }
+        else ctx.bad('Zap! Wrong terminal');
+        held = null; draw();
+      }
+    };
+    elHint.textContent = r <= 1 ? 'Tap a wire, then its terminal. Black = hot · White = neutral · Green = ground · Red = switch leg · Blue = traveler · Orange = data' : 'Tap a wire, then its terminal — you know the color code by now.';
+    next(); return 14;
+  }
+  // ── HCMC: triage the waiting room ──
+  function health(r) {
+    const P = [
+      ['Crushing chest pain, sweaty, BP 88/50', 0], ['Can’t finish a sentence, O₂ 84%', 0], ['Face drooping on one side, started 20 min ago', 0], ['Lips and tongue swelling after a bee sting', 0],
+      ['Temp 103.8°F, confused, heart rate 128', 0], ['Heavy bleeding from a leg wound', 0], ['Barely responsive after a fall, slow breathing', 0],
+      ['Deep cut on the hand, bleeding controlled', 1], ['Belly pain 6/10 for 5 hours, vitals normal', 1], ['Swollen wrist after a fall, fingers pink', 1], ['Vomiting all day, dizzy, heart rate 104', 1], ['Asthma flare, O₂ 94% after an inhaler', 1], ['Kidney stone pain 8/10, vitals stable', 1],
+      ['Sore throat for 2 days, vitals normal', 2], ['Rolled ankle, walking with a limp', 2], ['Needs a prescription refill', 2], ['Mild rash, no fever, breathing fine', 2], ['Earache, temp 99.4°F', 2], ['Cold symptoms for a week', 2]];
+    const L = ['🚨 Now', '⏱ Soon', '🪑 Can wait'];
+    function next() {
+      const [d, k] = pick(P);
+      body.innerHTML = `<div class="shCard"><small>PATIENT ${(Math.random() * 90 + 10) | 0} · ${pick(['M', 'F'])}, ${(Math.random() * 70 + 18) | 0}</small><b>${d}</b><span>How urgent?</span></div><div class="shGrid three">${L.map((l, i) => `<button data-ok="${i === k ? 1 : 0}">${l}</button>`).join('')}</div>`;
+      setItem(8 - r, () => { ctx.bad('Patient waited too long'); next(); });
+    }
+    body.onclick = e => { const b = e.target.closest('button'); if (!b) return; b.dataset.ok === '1' ? ctx.good() : ctx.bad('Wrong call'); next(); };
+    elHint.textContent = 'Triage each patient: life-threatening now, needs care soon, or safe to wait.';
+    next(); return 10;
+  }
+  // ── Best Buy: fix the customer's problem; engineers find the bug ──
+  function tech(r) {
+    const FIX = [
+      ['Laptop won’t turn on', 'Plug in the charger and hold power 15 s', ['Reinstall Windows', 'Replace the screen']],
+      ['Wi-Fi keeps dropping', 'Restart the router, update the Wi-Fi driver', ['Buy a new laptop', 'Turn off Bluetooth']],
+      ['Computer is really slow', 'Disable startup apps, free up disk space', ['Clean the keyboard', 'Lower screen brightness']],
+      ['Printer says “offline”', 'Reconnect it to the same Wi-Fi network', ['Replace the toner', 'Update the BIOS']],
+      ['TV has no sound', 'Check the input and the mute setting', ['Replace the HDMI port', 'Reset the remote']],
+      ['Phone won’t charge', 'Clean the port, try another cable', ['Update the apps', 'Reset network settings']],
+      ['Pop-ups all over the browser', 'Remove the bad extension, run a scan', ['Add more RAM', 'Change the wallpaper']],
+      ['Customer forgot their password', 'Verify their identity, then reset it', ['Guess common passwords', 'Reinstall the OS']],
+      ['Game console overheats', 'Clear the vents, give it airflow', ['Turn the volume down', 'Swap controller batteries']]];
+    const BUG = [
+      [['let total = 0;', 'for (let i = 0; i <= items.length; i++) {', '  total += items[i].price;', '}'], 1],
+      [['function isAdult(age) {', '  if (age = 18) return true;', '  return age > 18;', '}'], 1],
+      [['const rate = 0.08;', 'let price = 20;', 'let total = price + rate;', 'show(total);'], 2],
+      [['let count = 0;', 'while (count < 10) {', '  count--;', '}'], 2],
+      [['const names = [\'Ann\', \'Bo\'];', 'names.push(\'Cy\');', 'show(names[3]);'], 2],
+      [['function avg(a, b) {', '  return a + b / 2;', '}'], 1],
+      [['const user = getUser();', 'if (user == null) {', '  show(user.name);', '}'], 2],
+      [['function last(list) {', '  return list[list.length];', '}'], 1]];
+    function next() {
+      if (r >= 2 && Math.random() < 0.6) {
+        const [lines, k] = pick(BUG);
+        body.innerHTML = `<div class="shCard"><small>CODE REVIEW</small><span>Tap the buggy line</span></div><div class="shCode">${lines.map((l, i) => `<button data-ok="${i === k ? 1 : 0}">${esc(l)}</button>`).join('')}</div>`;
+        setItem(14 - r, () => { ctx.bad('Bug shipped'); next(); });
+      } else {
+        const [p, fix, wrong] = pick(FIX);
+        body.innerHTML = `<div class="shCard"><small>CUSTOMER</small><b>“${p}”</b><span>Best fix?</span></div><div class="shGrid one">${shuffle([fix, ...wrong]).map(o => `<button data-ok="${o === fix ? 1 : 0}">${o}</button>`).join('')}</div>`;
+        setItem(9 - r, () => { ctx.bad('Customer walked out'); next(); });
+      }
+    }
+    body.onclick = e => { const b = e.target.closest('button'); if (!b) return; b.dataset.ok === '1' ? ctx.good() : ctx.bad(); next(); };
+    elHint.textContent = r >= 2 ? 'Fix customers’ problems and catch bugs in code review.' : 'Pick the fix that actually solves the problem.';
+    next(); return 9;
+  }
+  // ── U.S. Bank: count out withdrawals exactly; catch bad checks ──
+  function bank(r) {
+    const BILLS = [100, 50, 20, 10, 5, 1];
+    const WORDS = n => { const o = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'], t = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'], teen = ['ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen'];
+      const h = Math.floor(n / 100), rest = n % 100; let s = h ? o[h] + ' hundred' : ''; if (rest) s += (s ? ' ' : '') + (rest < 10 ? o[rest] : rest < 20 ? teen[rest - 10] : t[Math.floor(rest / 10)] + (rest % 10 ? '-' + o[rest % 10] : '')); return s[0].toUpperCase() + s.slice(1) + ' dollars'; };
+    let want = 0, have = 0;
+    function next() {
+      if (r >= 1 && Math.random() < 0.4) {
+        const amt = 20 + ((Math.random() * 480) | 0), flaw = pick([null, null, 'words', 'date', 'sig']);
+        const words = WORDS(flaw === 'words' ? amt + pick([10, 100, -10]) : amt), date = flaw === 'date' ? 'Dec 3, 2027' : pick(['Oct 14, 2026', 'Oct 18, 2026', 'Sep 30, 2026']);
+        body.innerHTML = `<div class="shCheck"><div><small>PAY TO</small> ${pick(['Jordan Lee', 'Sam Ortiz', 'Pat Nguyen', 'Alex Berg'])}<span>$${amt}.00</span></div><div class="w">${words}</div><div><small>DATE</small> ${date}<span class="sig">${flaw === 'sig' ? '' : pick(['M. Olson', 'K. Larson', 'T. Johnson'])}</span></div></div><div class="shGrid two"><button data-ok="${flaw ? 0 : 1}">✅ Cash it</button><button data-ok="${flaw ? 1 : 0}">⛔ Reject</button></div>`;
+        setItem(11 - r, () => { ctx.bad('Customer complained'); next(); });
+        return;
+      }
+      want = 20 + ((Math.random() * (r ? 460 : 180)) | 0); have = 0; drawCash();
+      setItem(16 - r * 1.5, () => { ctx.bad('Too slow at the window'); next(); });
+    }
+    function drawCash() {
+      body.innerHTML = `<div class="shCard"><small>WITHDRAWAL</small><b>$${want}</b><span>Counted: <b class="${have > want ? 'neg' : ''}">$${have}</b></span></div><div class="shGrid bills">${BILLS.map(v => `<button data-b="${v}">$${v}</button>`).join('')}</div><div class="shGrid two"><button data-undo="1">↺ Recount</button><button class="shGo" data-hand="1">Hand it over</button></div>`;
+    }
+    body.onclick = e => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.ok !== undefined) { b.dataset.ok === '1' ? ctx.good() : ctx.bad('Bad call on that check'); next(); return; }
+      if (b.dataset.b) { have += +b.dataset.b; drawCash(); return; }
+      if (b.dataset.undo) { have = 0; drawCash(); return; }
+      if (b.dataset.hand) { have === want ? ctx.good('Exact 💵') : ctx.bad(have > want ? 'Overpaid!' : 'Short-changed'); next(); }
+    };
+    elHint.textContent = r >= 1 ? 'Count out each withdrawal exactly; reject checks with a missing signature, a future date, or words that don’t match the amount.' : 'Count out each withdrawal exactly.';
+    next(); return 6;
+  }
+  const GAMES = { coffee, retail, trades, health, tech, bank };
+  // ── running a shift ──
+  function start(kind, rank, title, done, dur = 60) {
+    G = { good: 0, bad: 0, t: dur, done, target: 1, over: false };
+    box.classList.add('on'); paused = true;
+    elT.textContent = title; upd();
+    G.target = GAMES[kind](rank) * dur / 60;
+    clearInterval(timer);
+    timer = setInterval(() => {
+      if (G.over) return;
+      G.t -= 0.1; itemT -= 0.1;
+      elTime.textContent = `⏱ ${Math.max(0, Math.ceil(G.t))}s`;
+      const bar = $('shBar'); bar.style.width = Math.max(0, itemT / itemMax * 100) + '%'; bar.classList.toggle('low', itemT < itemMax * 0.3);
+      if (itemT <= 0 && onItemOut) { const f = onItemOut; onItemOut = null; f(); }
+      if (G.t <= 0) finish();
+    }, 100);
+  }
+  function perf() { const tot = G.good + G.bad; return tot ? Math.min(1, G.good / G.target) * Math.sqrt(G.good / tot) : 0; }
+  function finish() {
+    G.over = true; clearInterval(timer); onItemOut = null;
+    const p = perf(), grade = p >= 0.9 ? 'Outstanding' : p >= 0.7 ? 'Great shift' : p >= 0.5 ? 'Solid' : p >= 0.3 ? 'Rough day' : 'Your manager noticed…';
+    const mult = shiftGame.mult(p);
+    body.innerHTML = `<div class="shCard res"><small>SHIFT REVIEW</small><b>${grade}</b><span>${G.good} done right · ${G.bad} mistake${G.bad === 1 ? '' : 's'} · performance ${Math.round(p * 100)}%</span><span class="${mult >= 1 ? 'pos' : 'neg'}">Pay ${mult >= 1 ? '+' : '−'}${Math.abs(Math.round((mult - 1) * 100))}%${p >= 0.8 ? ' · counts double toward promotion' : ''}</span></div><button class="shGo" data-end="1">Clock out</button>`;
+    body.onclick = e => { if (e.target.closest('[data-end]')) end(p); };
+    elHint.textContent = '';
+  }
+  function end(p) { box.classList.remove('on'); paused = false; last = performance.now(); const d = G.done; G = null; d(p); }
+  $('shSkip').onclick = () => { if (!G) return; clearInterval(timer); onItemOut = null; G.over = true; end(null); };
+  return { start, mult: p => p == null ? 1 : p < 0.5 ? 0.85 + 0.3 * p : 1 + 0.4 * (p - 0.5), isOn: () => !!G };
+})();
+window.__shift = shiftGame;
 // ───────────────────────── work: XP, levels and skill points; driving gigs; careers at real employers ─────────────────────────
 // Wages are 2026 Twin Cities figures: Minneapolis minimum wage $16.37 (Jan 2026), Minnesota rideshare minimum pay $1.28/mile +
 // $0.31/minute (2026), Metro Transit bus operators $27.59/hr to start (ATU 1005 contract), and career wages anchored to the
@@ -5433,14 +5637,18 @@ const jobs = (() => {
     if (st === 'missed') { toast('Too late for today’s shift'); return; }
     if (gig) goOffline(true);
     const late = Math.max(0, tod - sc.start), hrs = SHIFT_H - (st === 'late' ? late : 0);
-    const lad = LAD(j.lad), rank = lad.ranks[j.rank], pay = rank.w * hrs * payMult();
-    j.lastDay = today();
+    const lad = LAD(j.lad), rank = lad.ranks[j.rank];
+    j.lastDay = today(); life.save();
+    shiftGame.start(lad.k, j.rank, `${lad.ic} ${rank.t} · ${lad.emp}`, p => finishShift(j, lad, rank, st, late, hrs, p));
+  }
+  function finishShift(j, lad, rank, st, late, hrs, p) {
+    const sc = lad.sched, mult = shiftGame.mult(p), pay = rank.w * hrs * payMult() * mult;
     tod = (tod + hrs) % 24; applyTime(tod); life.tick(hrs); syncDay();
-    j.shifts++; j.total++; j.last = L.hours;
-    life.earn(Math.round(pay * 100) / 100, `Paycheck — ${rank.t}, ${hrs.toFixed(hrs % 1 ? 1 : 0)} h`);
+    j.shifts += p != null && p >= 0.8 ? 2 : 1; j.total++; j.last = L.hours;
+    life.earn(Math.round(pay * 100) / 100, `Paycheck — ${rank.t}, ${hrs.toFixed(hrs % 1 ? 1 : 0)} h${p == null ? '' : ` (${Math.round(p * 100)}% performance)`}`);
     flashTag(`+${money(pay)}`);
     toast(st === 'late' ? `You were ${Math.round(late * 60)} min late — paid for ${hrs.toFixed(1)} h · ${money(pay)} · it's ${clockText()}` : `Worked your ${fh(sc.start)}–${fh(sc.start + SHIFT_H)} shift as ${rank.t} · ${money(pay)} deposited`);
-    gainXP(35 + 10 * j.rank);
+    gainXP(Math.round((35 + 10 * j.rank) * (p == null ? 0.7 : 0.6 + 0.8 * p)));
     checkPromo();
     L.pos = { x: S.x, z: S.z, h: S.h }; life.save();
   }
@@ -5988,7 +6196,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyM') bigMap.classList.contains('on') ? closeMap() : openMap();
   if (e.code === 'KeyR' && !inside.on) respawnOnRoad();
   if (e.code === 'KeyE' && !e.repeat && started && !paused) life.doAction();
-  if (e.code === 'KeyP' && !e.repeat) phone.isOpen() ? phone.close() : (started && !paused && phone.open());
+  if (e.code === 'KeyP' && !e.repeat && !shiftGame.isOn()) phone.isOpen() ? phone.close() : (started && !paused && phone.open());
   if (e.code === 'Escape' && phone.isOpen()) phone.close();
   if (e.code === 'KeyG') openNavPanel();
   if (e.code === 'Escape' && bigMap.classList.contains('on')) closeMap();

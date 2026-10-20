@@ -258,6 +258,35 @@
   body.inside .pad .hb[data-k="brake"] { visibility:hidden; }
   .sched { display:flex; gap:4px; align-items:center; margin:8px 0 4px; } .sched i { width:22px; height:22px; border-radius:6px; display:grid; place-items:center; font-style:normal; font-size:11px; font-weight:900; background:rgba(255,255,255,.07); opacity:.5; }
   .sched i.on { background:#4fd27a; color:#0d1a12; opacity:1; } .sched i.now { outline:2px solid var(--accent); } .sched span { margin-left:6px; font-size:12px; font-weight:800; }
+  /* shift mini-games */
+  #shift { position:fixed; inset:0; display:none; background:rgba(8,10,12,.72); padding:max(14px, env(safe-area-inset-top)) 12px max(14px, env(safe-area-inset-bottom)); pointer-events:auto; z-index:22; }
+  #shift.on { display:flex; justify-content:center; align-items:center; }
+  .shiftCase { position:relative; }
+  .shTop { display:flex; justify-content:space-between; align-items:center; padding:14px 16px 4px; gap:10px; } .shTop b { font-size:15px; font-weight:900; } #shTime { font-weight:900; font-variant-numeric:tabular-nums; color:var(--accent); white-space:nowrap; }
+  .shSub { padding:0 16px 8px; display:flex; align-items:center; gap:10px; font-size:12px; font-weight:800; } #shScore { white-space:nowrap; }
+  .shBarBox { flex:1; height:6px; border-radius:99px; background:rgba(255,255,255,.1); overflow:hidden; } #shBar { display:block; height:100%; width:100%; background:#4fd27a; transition:width .1s linear; } #shBar.low { background:#ff5a4a; }
+  #shBody { flex:1; overflow:auto; padding:6px 14px; }
+  .shBot { padding:10px 14px 14px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:8px; } #shHint { font-size:12px; opacity:.7; line-height:1.35; }
+  #shSkip { border:0; background:rgba(255,255,255,.1); color:var(--ink); border-radius:10px; padding:9px; font-weight:800; font-size:13px; }
+  .shCard { background:rgba(255,255,255,.07); border:1px solid var(--line); border-radius:14px; padding:14px; margin:6px 0 12px; text-align:center; }
+  .shCard small { display:block; font-size:10px; font-weight:900; letter-spacing:.12em; opacity:.55; margin-bottom:4px; } .shCard b { display:block; font-size:20px; font-weight:900; line-height:1.25; } .shCard span { display:block; margin-top:6px; font-size:13px; opacity:.85; }
+  .shCard.res b { font-size:26px; color:var(--accent); } .shCard .pos { color:#7ee08a; font-weight:900; opacity:1; } .shCard .neg, .neg { color:#ff7a6b; }
+  .shLab { font-size:11px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; opacity:.6; margin:8px 0 4px; }
+  .shChips { display:flex; flex-wrap:wrap; gap:6px; } .shChips button { border:1px solid var(--line); background:rgba(255,255,255,.06); color:var(--ink); border-radius:999px; padding:8px 12px; font-weight:800; font-size:13px; } .shChips button.on { background:var(--accent); color:#1a1206; border-color:transparent; }
+  .shGo { width:100%; margin-top:14px; border:0; background:var(--accent); color:#1a1206; border-radius:12px; padding:13px; font-weight:900; font-size:16px; }
+  .shGrid { display:grid; grid-template-columns:1fr 1fr; gap:8px; } .shGrid.three { grid-template-columns:1fr 1fr 1fr; } .shGrid.one { grid-template-columns:1fr; } .shGrid.two { grid-template-columns:1fr 1fr; margin-top:8px; } .shGrid.bills { grid-template-columns:repeat(3, 1fr); }
+  .shGrid button { border:1px solid var(--line); background:rgba(255,255,255,.08); color:var(--ink); border-radius:12px; padding:14px 8px; font-weight:800; font-size:14px; line-height:1.25; }
+  .shGrid.bills button { background:#25402f; border-color:#3d6a4c; font-size:17px; }
+  .shCode button { display:block; width:100%; text-align:left; font:13px/1.4 ui-monospace, Menlo, Consolas, monospace; white-space:pre; border:0; border-bottom:1px solid var(--line); background:#0b0e12; color:#cfe3ff; padding:10px; overflow:hidden; text-overflow:ellipsis; }
+  .shWire { display:grid; grid-template-columns:90px 1fr; gap:14px; } .shWire > div { display:flex; flex-direction:column; gap:8px; }
+  .wire { height:40px; border-radius:20px; border:3px solid rgba(255,255,255,.25); } .wire.on { outline:3px solid var(--accent); } .wire.done { opacity:.25; }
+  .wire.black { background:#15171a; } .wire.white { background:#f2f2ee; } .wire.green { background:#2e9a4a; } .wire.red { background:#d6332a; } .wire.blue { background:#2a5bd6; } .wire.orange { background:#ef8a1a; }
+  .term { height:40px; border-radius:10px; border:1px dashed rgba(255,255,255,.35); background:rgba(255,255,255,.05); color:var(--ink); font-weight:800; font-size:13px; } .term.done { border-style:solid; border-color:#4fd27a; color:#7ee08a; }
+  .shCheck { background:#eef3ea; color:#1d2a20; border-radius:10px; padding:14px; margin:6px 0 12px; font-size:14px; } .shCheck > div { display:flex; justify-content:space-between; align-items:baseline; gap:8px; padding:6px 0; border-bottom:1px solid #c9d4c4; }
+  .shCheck small { font-size:10px; font-weight:900; opacity:.6; margin-right:6px; } .shCheck span { font-weight:900; font-size:16px; } .shCheck .w { font-style:italic; } .shCheck .sig { font-family:'Brush Script MT', cursive; font-weight:400; font-size:20px; min-width:90px; border-bottom:1px solid #333; text-align:center; }
+  .shFx { position:absolute; left:50%; top:42%; transform:translate(-50%, -50%); font-size:22px; font-weight:900; padding:8px 16px; border-radius:12px; pointer-events:none; animation:shfx .7s ease-out forwards; white-space:nowrap; }
+  .shFx.ok { background:#2e9a4a; color:#fff; } .shFx.no { background:#c0392b; color:#fff; }
+  @keyframes shfx { 0% { opacity:0; transform:translate(-50%, -30%) scale(.8); } 20% { opacity:1; transform:translate(-50%, -50%) scale(1); } 100% { opacity:0; transform:translate(-50%, -90%); } }
 </style>
 </head>
 <body>
@@ -315,6 +344,14 @@
 </div>
 
 <div id="toast"></div>
+<div id="shift">
+  <div class="phoneCase shiftCase">
+    <div class="shTop"><b id="shTitle"></b><span id="shTime"></span></div>
+    <div class="shSub"><span id="shScore"></span><div class="shBarBox"><i id="shBar"></i></div></div>
+    <div id="shBody"></div>
+    <div class="shBot"><span id="shHint"></span><button id="shSkip">Skip shift · base pay</button></div>
+  </div>
+</div>
 <div id="phone">
   <div class="phoneCase">
     <div class="phoneTop"><b>📱 Phone</b><button id="phoneClose">Close</button></div>
@@ -405,6 +442,6 @@
 </div>
 
 <script>window.TCD_STATIC = true;</script>
-<script type="module" src="game.js?v=43"></script>
+<script type="module" src="game.js?v=44"></script>
 </body>
 </html>
